@@ -1,3 +1,5 @@
+import type { VisionModelPrediction } from "@/lib/tfliteBridge";
+
 export type VisionAgentResult = {
   label: string;
   confidence: number;
@@ -69,8 +71,24 @@ function levelFromRank(rank: number): "low" | "medium" | "high" {
   return "low";
 }
 
-export function runVisionAgent(): VisionAgentResult {
-  // Placeholder for on-device model output until tflite integration.
+export function runVisionAgent(modelPrediction?: VisionModelPrediction | null): VisionAgentResult {
+  if (modelPrediction) {
+    const severity: "low" | "medium" | "high" =
+      modelPrediction.confidence >= 0.85
+        ? "high"
+        : modelPrediction.confidence >= 0.65
+          ? "medium"
+          : "low";
+
+    return {
+      label: modelPrediction.label,
+      confidence: modelPrediction.confidence,
+      severity,
+      rationale: `On-device TFLite model predicted "${modelPrediction.label}" from captured skin image.`,
+    };
+  }
+
+  // Fallback placeholder if runtime/model is not available.
   return {
     label: "nonspecific inflammatory lesion",
     confidence: 0.64,
@@ -142,8 +160,11 @@ export function runTriageAgent(
   };
 }
 
-export function runLocalAgentPipeline(symptomText: string): LocalAgentOutput {
-  const vision = runVisionAgent();
+export function runLocalAgentPipeline(
+  symptomText: string,
+  modelPrediction?: VisionModelPrediction | null
+): LocalAgentOutput {
+  const vision = runVisionAgent(modelPrediction);
   const symptoms = runSymptomAgent(symptomText);
   const consensus = runTriageAgent(vision, symptoms);
 

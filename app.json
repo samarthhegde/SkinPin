@@ -9,7 +9,12 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "PrivateCare uses speech recognition to transcribe symptom descriptions.",
+        "NSMicrophoneUsageDescription": "PrivateCare uses your microphone for optional voice symptom entry."
+      },
+      "bundleIdentifier": "com.sunnyg83.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +24,10 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "output": "static",
@@ -44,6 +52,12 @@
         {
           "microphonePermission": "PrivateCare uses your microphone for optional voice symptom entry.",
           "speechRecognitionPermission": "PrivateCare uses speech recognition to transcribe symptom descriptions."
+        }
+      ],
+      [
+        "react-native-fast-tflite",
+        {
+          "enableCoreMLDelegate": true
         }
       ]
     ],

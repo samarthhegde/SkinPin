@@ -13,6 +13,7 @@ import {
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { getGeminiExplanation } from '@/lib/gemini';
 import { LocalAgentOutput, runLocalAgentPipeline } from '@/lib/agents';
+import { analyzeSkinPhotoWithTflite, initializeTfliteBridge } from '@/lib/tfliteBridge';
 
 let speechRecognitionModule: any = null;
 try {
@@ -41,6 +42,7 @@ export default function HomeScreen() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [sensitiveMode, setSensitiveMode] = useState(true);
+  const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('back');
   const speechEnabled = useMemo(() => speechRecognitionModule !== null, []);
 
   useEffect(() => {
@@ -106,8 +108,12 @@ export default function HomeScreen() {
   };
 
   const runLocalAnalysis = async () => {
+    if (!photoUri) return;
     setIsAnalyzing(true);
-    const output = runLocalAgentPipeline(symptoms);
+
+    await initializeTfliteBridge();
+    const modelPrediction = await analyzeSkinPhotoWithTflite(photoUri);
+    const output = runLocalAgentPipeline(symptoms, modelPrediction);
     setAgentOutput(output);
 
     const geminiText = await getGeminiExplanation({
@@ -295,7 +301,7 @@ export default function HomeScreen() {
           </View>
         </ScrollView>
       ) : (
-        <CameraView style={{ flex: 1 }} ref={setCameraRef}>
+        <CameraView style={{ flex: 1 }} ref={setCameraRef} facing={cameraFacing}>
           <View style={{ flex: 1, justifyContent: 'space-between', padding: 24 }}>
             <View style={{ marginTop: 24 }}>
               <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '800' }}>PrivateCare</Text>
@@ -317,7 +323,13 @@ export default function HomeScreen() {
               <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>Tap to Capture</Text>
             </View>
 
-            <Button title="Take Photo" onPress={takePhoto} />
+            <View style={{ gap: 10 }}>
+              <Button
+                title={`Flip Camera (${cameraFacing === 'back' ? 'Back' : 'Front'})`}
+                onPress={() => setCameraFacing((prev) => (prev === 'back' ? 'front' : 'back'))}
+              />
+              <Button title="Take Photo" onPress={takePhoto} />
+            </View>
           </View>
         </CameraView>
       )}
