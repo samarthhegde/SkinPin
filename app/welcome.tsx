@@ -1,15 +1,15 @@
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  Modal,
-  FlatList,
-  StyleSheet,
-  SafeAreaView,
-  StatusBar,
+    FlatList,
+    Modal,
+    SafeAreaView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 
 const LANGUAGES = [
   { code: 'en', label: 'English', native: 'English' },

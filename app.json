@@ -12,7 +12,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "PrivateCare uses speech recognition to transcribe symptom descriptions.",
-        "NSMicrophoneUsageDescription": "PrivateCare uses your microphone for optional voice symptom entry."
+        "NSMicrophoneUsageDescription": "PrivateCare uses your microphone for optional voice symptom entry.",
+        "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.sunnyg83.app"
     },
@@ -64,6 +65,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "edca3309-4fe9-40a1-926e-c9fc4cbb4817"
+      }
     }
   }
 }

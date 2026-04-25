@@ -1,18 +1,18 @@
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  SafeAreaView,
-  StyleSheet,
-  StatusBar,
-  Image,
-  ActivityIndicator,
-} from 'react-native';
+import { LocalAgentOutput, runLocalAgentPipeline } from '@/lib/agents';
+import { getGeminiExplanation } from '@/lib/gemini';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { runLocalAgentPipeline, LocalAgentOutput } from '@/lib/agents';
-import { getGeminiExplanation } from '@/lib/gemini';
+import {
+    ActivityIndicator,
+    Image,
+    SafeAreaView,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 
 const LAVENDER_BG = '#F3EFFE';
 const LAVENDER    = '#C4B5FD';

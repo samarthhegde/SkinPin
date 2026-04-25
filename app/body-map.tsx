@@ -1,5 +1,5 @@
-import { StyleSheet, SafeAreaView, TouchableOpacity, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 const PURPLE = '#7C3AED';

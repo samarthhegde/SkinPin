@@ -1,19 +1,18 @@
-import { useState, useRef, useMemo } from 'react';
-import {
-  View,
-  Text,
-  Image,
-  TouchableOpacity,
-  TextInput,
-  ScrollView,
-  SafeAreaView,
-  StyleSheet,
-  StatusBar,
-  KeyboardAvoidingView,
-  Platform,
-  Keyboard,
-} from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useMemo, useRef, useState } from 'react';
+import {
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    SafeAreaView,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
+} from 'react-native';
 
 // Keywords the tagger will detect — maps to RISK_TOKENS + duration patterns in agents.ts
 const TAG_KEYWORDS = [

@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { CameraView, FlashMode, useCameraPermissions } from 'expo-camera';
+import { useRouter } from 'expo-router';
 import { PinchGestureHandler, PinchGestureHandlerGestureEvent, State } from 'react-native-gesture-handler';
 import { getGeminiExplanation } from '@/lib/gemini';
 import { LocalAgentOutput, runLocalAgentPipeline } from '@/lib/agents';
