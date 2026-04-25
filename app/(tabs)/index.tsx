@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useRouter } from 'expo-router';
 import { getGeminiExplanation } from '@/lib/gemini';
 import { LocalAgentOutput, runLocalAgentPipeline } from '@/lib/agents';
 import { analyzeSkinPhotoWithTflite, initializeTfliteBridge } from '@/lib/tfliteBridge';
@@ -44,6 +45,7 @@ export default function HomeScreen() {
   const [sensitiveMode, setSensitiveMode] = useState(true);
   const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('back');
   const speechEnabled = useMemo(() => speechRecognitionModule !== null, []);
+  const router = useRouter();
 
   useEffect(() => {
     if (!speechRecognitionModule) return;
@@ -82,9 +84,7 @@ export default function HomeScreen() {
   const takePhoto = async () => {
     if (!cameraRef) return;
     const photo = await cameraRef.takePictureAsync();
-    setPhotoUri(photo.uri);
-    setAgentOutput(null);
-    setGeminiExplanation(null);
+    router.push({ pathname: '/symptoms', params: { photoUri: photo.uri } });
   };
 
   const startVoiceInput = async () => {
