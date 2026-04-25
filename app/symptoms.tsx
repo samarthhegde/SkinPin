@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,8 +11,65 @@ import {
   StatusBar,
   KeyboardAvoidingView,
   Platform,
+  Keyboard,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+
+// Keywords the tagger will detect — maps to RISK_TOKENS + duration patterns in agents.ts
+const TAG_KEYWORDS = [
+  'pain', 'painful', 'hurts', 'hurting',
+  'itch', 'itchy', 'itching',
+  'burn', 'burning', 'burns',
+  'ooze', 'oozing', 'leaking', 'weeping',
+  'red', 'redness', 'reddish',
+  'spread', 'spreading', 'spreading out', 'getting bigger',
+  'swell', 'swelling', 'swollen',
+  'fever', 'hot', 'temperature',
+  'bleed', 'bleeding', 'blood',
+  'pus', 'infected', 'infection',
+  'dry', 'flaky', 'peeling',
+  'bump', 'bumps', 'lump',
+  'rash', 'hives',
+  'day', 'days', 'week', 'weeks', 'month', 'months',
+];
+
+// Extract unique meaningful tags from free text
+function extractTags(text: string): string[] {
+  if (!text.trim()) return [];
+  const lower = text.toLowerCase();
+  const found = new Set<string>();
+
+  // Duration pattern: "3 days", "2 weeks" etc
+  const durationMatch = lower.match(/(\d+)\s*(day|days|week|weeks|month|months)/);
+  if (durationMatch) found.add(`${durationMatch[1]} ${durationMatch[2]}`);
+
+  // Keyword scan
+  for (const kw of TAG_KEYWORDS) {
+    if (lower.includes(kw)) {
+      // Normalize to clean label
+      const label =
+        kw.startsWith('itch') ? 'itchy' :
+        kw.startsWith('burn') ? 'burning' :
+        kw.startsWith('ooze') || kw === 'leaking' || kw === 'weeping' ? 'oozing' :
+        kw.startsWith('red') ? 'redness' :
+        kw.startsWith('spread') || kw === 'getting bigger' ? 'spreading' :
+        kw.startsWith('swell') ? 'swelling' :
+        kw.startsWith('bleed') || kw === 'blood' ? 'bleeding' :
+        kw === 'hot' || kw === 'temperature' ? 'fever' :
+        kw === 'painful' || kw === 'hurts' || kw === 'hurting' ? 'pain' :
+        kw === 'flaky' || kw === 'peeling' ? 'dry/peeling' :
+        kw === 'bumps' ? 'bump' :
+        kw === 'hives' ? 'rash/hives' :
+        kw;
+      // Don't add pure duration keywords as symptom tags
+      if (!['day','days','week','weeks','month','months'].includes(kw)) {
+        found.add(label);
+      }
+    }
+  }
+
+  return Array.from(found).slice(0, 8); // max 8 tags shown
+}
 
 // Symptom chips — each label maps directly to RISK_TOKENS in agents.ts
 const SYMPTOM_CHIPS = [
@@ -52,7 +109,11 @@ export default function SymptomsScreen() {
   const [otherExpanded, setOtherExpanded] = useState(false);
   const [otherText, setOtherText] = useState('');
   const [freeText, setFreeText] = useState('');
-  const [isListening, setIsListening] = useState(false);
+  const [showVoiceHint, setShowVoiceHint] = useState(false);
+  const freeTextRef = useRef<TextInput>(null);
+
+  // Live tags extracted from whatever the user typed/spoke
+  const detectedTags = useMemo(() => extractTags(freeText + ' ' + otherText), [freeText, otherText]);
 
   const toggleSymptom = (chip: string) => {
     if (chip === 'Other') {
@@ -77,6 +138,9 @@ export default function SymptomsScreen() {
       .filter((s) => s !== 'Other')
       .map((s) => s.toLowerCase());
     if (chips.length) parts.push(chips.join(', '));
+    // Include detected tags from voice/text (deduped against chips)
+    const extraTags = detectedTags.filter((t) => !chips.includes(t));
+    if (extraTags.length) parts.push(extraTags.join(', '));
     if (otherText.trim()) parts.push(otherText.trim());
     if (freeText.trim()) parts.push(freeText.trim());
     return parts.join('. ');
@@ -85,8 +149,8 @@ export default function SymptomsScreen() {
   const handleAnalyze = () => {
     const symptomString = buildSymptomString();
     router.push({
-      pathname: '/(tabs)',
-      params: { photoUri, symptoms: symptomString, autoAnalyze: '1' },
+      pathname: '/results',
+      params: { photoUri, symptoms: symptomString },
     });
   };
 
@@ -189,6 +253,7 @@ export default function SymptomsScreen() {
           <View style={styles.card}>
             <Text style={styles.sectionLabel}>ANYTHING ELSE? (OPTIONAL)</Text>
             <TextInput
+              ref={freeTextRef}
               style={styles.freeTextInput}
               placeholder={'e.g. "Started after using a new lotion, only on my arm..."'}
               placeholderTextColor={GRAY_LABEL}
@@ -198,16 +263,42 @@ export default function SymptomsScreen() {
               textAlignVertical="top"
             />
 
-            {/* Voice button — bottom of this card */}
+            {/* Voice button — taps into text field + shows iOS keyboard mic hint */}
             <TouchableOpacity
-              style={[styles.voiceBtn, isListening && styles.voiceBtnActive]}
-              onPress={() => setIsListening((prev) => !prev)}
+              style={[styles.voiceBtn, showVoiceHint && styles.voiceBtnActive]}
+              onPress={() => {
+                setShowVoiceHint(true);
+                freeTextRef.current?.focus();
+              }}
               activeOpacity={0.85}
             >
-              <Text style={[styles.voiceBtnText, isListening && styles.voiceBtnTextActive]}>
-                {isListening ? '⏹  Stop Recording' : '🎙  Speak instead'}
+              <Text style={[styles.voiceBtnText, showVoiceHint && styles.voiceBtnTextActive]}>
+                🎙  Speak instead
               </Text>
             </TouchableOpacity>
+            {showVoiceHint && (
+              <View style={styles.voiceHintBox}>
+                <Text style={styles.voiceHintText}>
+                  Tap the <Text style={styles.voiceHintBold}>🎤 mic key</Text> on your keyboard to speak — your words will appear above automatically.{'\n'}
+                  <Text style={styles.voiceHintPrivacy}>🔒 Audio is processed on-device by Apple. Nothing is recorded or stored.</Text>
+                </Text>
+              </View>
+            )}
+
+            {/* Live detected tags from voice/text */}
+            {detectedTags.length > 0 && (
+              <View style={styles.tagsSection}>
+                <Text style={styles.tagsLabel}>DETECTED FROM YOUR DESCRIPTION</Text>
+                <View style={styles.tagsRow}>
+                  {detectedTags.map((tag) => (
+                    <View key={tag} style={styles.tagChip}>
+                      <Text style={styles.tagChipText}>✓ {tag}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={styles.tagsHint}>These will be included in your analysis automatically.</Text>
+              </View>
+            )}
           </View>
 
           {/* Analyze CTA */}
@@ -423,5 +514,65 @@ const styles = StyleSheet.create({
     color: GRAY_LABEL,
     marginTop: 4,
     paddingBottom: 8,
+  },
+  listeningHint: {
+    textAlign: 'center',
+    fontSize: 13,
+    color: PURPLE,
+    fontWeight: '500',
+  },
+  voiceHintBox: {
+    backgroundColor: '#F3EFFE',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: LAVENDER,
+  },
+  voiceHintText: {
+    fontSize: 13,
+    color: GRAY_TEXT,
+    lineHeight: 20,
+  },
+  voiceHintBold: {
+    fontWeight: '700',
+    color: PURPLE,
+  },
+  voiceHintPrivacy: {
+    fontSize: 12,
+    color: GRAY_LABEL,
+  },
+  tagsSection: {
+    gap: 8,
+    marginTop: 4,
+  },
+  tagsLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: PURPLE,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  tagsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  tagChip: {
+    backgroundColor: '#EDE9FE',
+    borderRadius: 50,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: LAVENDER,
+  },
+  tagChipText: {
+    fontSize: 13,
+    color: PURPLE,
+    fontWeight: '600',
+  },
+  tagsHint: {
+    fontSize: 11,
+    color: GRAY_LABEL,
+    fontStyle: 'italic',
   },
 });
