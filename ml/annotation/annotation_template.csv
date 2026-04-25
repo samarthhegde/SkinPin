@@ -1,0 +1,6 @@
+image_id,relative_path,primary_condition,severity,urgency,is_skin,image_quality,occlusion_type,artifact_present,body_region,skin_tone_group,annotator_confidence,label_source,notes
+img_0001,archive (1)/train/Eczema Photos/example1.jpg,Eczema Photos,moderate,soon,yes,good,none,none,arm,medium,4,student,
+img_0002,archive (1)/train/Melanoma Skin Cancer Nevi and Moles/example2.jpg,Melanoma Skin Cancer Nevi and Moles,severe,urgent,yes,good,none,none,leg,light,5,expert,Irregular border and dark lesion
+img_0003,custom/normal/normal_01.jpg,normal_skin,none,monitor,yes,good,none,none,hand,dark,4,student,No clear pathology
+img_0004,custom/edge_cases/non_skin/shirt_texture_01.jpg,non_skin,none,monitor,no,good,none,none,other,unknown,5,student,Clothing texture false positive candidate
+img_0005,custom/edge_cases/poor_quality/blurred_01.jpg,uncertain,none,soon,yes,blurry,shadow,none,torso,tan,3,student,Need recapture

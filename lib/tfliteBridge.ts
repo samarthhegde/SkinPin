@@ -5,6 +5,8 @@ import jpeg from "jpeg-js";
 export type VisionModelPrediction = {
   label: string;
   confidence: number;
+  margin: number;
+  topK: { label: string; confidence: number }[];
   source: "tflite";
 };
 
@@ -45,6 +47,24 @@ const DERMA23_LABELS = [
   "Warts Molluscum and other Viral Infections",
 ];
 
+const REDUCED15_LABELS = [
+  "inflammatory",
+  "malignant_or_precancerous",
+  "eczema_dermatitis",
+  "autoimmune_bullous",
+  "infectious_bacterial",
+  "hair_nail_disorder",
+  "infectious_viral_std",
+  "pigment_light_disorder",
+  "autoimmune_connective",
+  "papulosquamous",
+  "infestation_bite",
+  "benign_tumor",
+  "systemic_manifestation",
+  "infectious_fungal",
+  "vascular",
+];
+
 const MODEL_SIZE = 224;
 
 let tfliteModel: TfliteModel | null = null;
@@ -63,6 +83,15 @@ function argmax(scores: Float32Array): number {
   return bestIdx;
 }
 
+function topK(scores: Float32Array, k: number): { index: number; confidence: number }[] {
+  const pairs: { index: number; confidence: number }[] = [];
+  for (let i = 0; i < scores.length; i += 1) {
+    pairs.push({ index: i, confidence: scores[i] });
+  }
+  pairs.sort((a, b) => b.confidence - a.confidence);
+  return pairs.slice(0, Math.max(1, k));
+}
+
 function softmax(logits: Float32Array): Float32Array {
   let maxVal = Number.NEGATIVE_INFINITY;
   for (let i = 0; i < logits.length; i += 1) maxVal = Math.max(maxVal, logits[i]);
@@ -77,11 +106,17 @@ function softmax(logits: Float32Array): Float32Array {
   return exps;
 }
 
+function labelsForOutputSize(size: number): string[] {
+  if (size === REDUCED15_LABELS.length) return REDUCED15_LABELS;
+  return DERMA23_LABELS;
+}
+
 function resizeRgbaToRgb224(
   rgba: Uint8Array,
   srcWidth: number,
   srcHeight: number,
-  inputDType: string
+  inputDType: string,
+  flipHorizontal = false
 ): ArrayBuffer {
   const pixelCount = MODEL_SIZE * MODEL_SIZE * 3;
 
@@ -91,7 +126,8 @@ function resizeRgbaToRgb224(
     for (let y = 0; y < MODEL_SIZE; y += 1) {
       const srcY = Math.floor((y / MODEL_SIZE) * srcHeight);
       for (let x = 0; x < MODEL_SIZE; x += 1) {
-        const srcX = Math.floor((x / MODEL_SIZE) * srcWidth);
+        const sampleX = flipHorizontal ? MODEL_SIZE - 1 - x : x;
+        const srcX = Math.floor((sampleX / MODEL_SIZE) * srcWidth);
         const srcIdx = (srcY * srcWidth + srcX) * 4;
         out[outIndex++] = rgba[srcIdx];
         out[outIndex++] = rgba[srcIdx + 1];
@@ -106,7 +142,8 @@ function resizeRgbaToRgb224(
   for (let y = 0; y < MODEL_SIZE; y += 1) {
     const srcY = Math.floor((y / MODEL_SIZE) * srcHeight);
     for (let x = 0; x < MODEL_SIZE; x += 1) {
-      const srcX = Math.floor((x / MODEL_SIZE) * srcWidth);
+      const sampleX = flipHorizontal ? MODEL_SIZE - 1 - x : x;
+      const srcX = Math.floor((sampleX / MODEL_SIZE) * srcWidth);
       const srcIdx = (srcY * srcWidth + srcX) * 4;
       out[outIndex++] = rgba[srcIdx];
       out[outIndex++] = rgba[srcIdx + 1];
@@ -161,20 +198,43 @@ export async function analyzeSkinPhotoWithTflite(photoUri: string): Promise<Visi
       decoded.height,
       inputDataType
     );
+    const flippedBuffer = resizeRgbaToRgb224(
+      decoded.data,
+      decoded.width,
+      decoded.height,
+      inputDataType,
+      true
+    );
 
     const outputs = tfliteModel.runSync([inputBuffer]);
-    if (!outputs.length || !outputs[0]) return null;
+    const outputsFlipped = tfliteModel.runSync([flippedBuffer]);
+    if (!outputs.length || !outputs[0] || !outputsFlipped.length || !outputsFlipped[0]) return null;
 
-    let scores = new Float32Array(outputs[0]);
+    const scoresA = new Float32Array(outputs[0]);
+    const scoresB = new Float32Array(outputsFlipped[0]);
+    if (scoresA.length !== scoresB.length) return null;
+    let scores = new Float32Array(scoresA.length);
+    for (let i = 0; i < scores.length; i += 1) {
+      scores[i] = (scoresA[i] + scoresB[i]) / 2;
+    }
     // If model already outputs probabilities, this is still valid for argmax.
     // Applying softmax keeps confidence values interpretable.
     scores = softmax(scores);
 
+    const labels = labelsForOutputSize(scores.length);
     const bestIdx = argmax(scores);
-    const label = DERMA23_LABELS[bestIdx] ?? `class_${bestIdx}`;
+    const label = labels[bestIdx] ?? `class_${bestIdx}`;
     const confidence = scores[bestIdx] ?? 0;
+    const topPredictions = topK(scores, 3).map((entry) => ({
+      label: labels[entry.index] ?? `class_${entry.index}`,
+      confidence: entry.confidence,
+    }));
+    const margin =
+      topPredictions.length > 1
+        ? topPredictions[0].confidence - topPredictions[1].confidence
+        : topPredictions[0].confidence;
 
-    return { label, confidence, source: "tflite" };
+    return { label, confidence, margin, topK: topPredictions, source: "tflite" };
   } catch {
     return null;
   }

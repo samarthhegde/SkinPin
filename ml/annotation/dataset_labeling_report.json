@@ -1,0 +1,33 @@
+{
+  "total_rows": 29574,
+  "review_queue_rows": 9835,
+  "unmapped_rows": 0,
+  "is_fully_labeled_structurally": true,
+  "quality_counts": {
+    "fair": 6365,
+    "good": 19739,
+    "poor": 3470
+  },
+  "split_counts": {
+    "ham10000": 10015,
+    "test": 4002,
+    "train": 15557
+  },
+  "super_label_counts": {
+    "autoimmune_bullous": 561,
+    "autoimmune_connective": 525,
+    "benign_tumor": 9633,
+    "eczema_dermatitis": 2481,
+    "hair_nail_disorder": 1600,
+    "infectious_bacterial": 361,
+    "infectious_fungal": 1625,
+    "infectious_viral_std": 1865,
+    "infestation_bite": 539,
+    "inflammatory": 1922,
+    "malignant_or_precancerous": 3970,
+    "papulosquamous": 1757,
+    "pigment_light_disorder": 711,
+    "systemic_manifestation": 758,
+    "vascular": 1266
+  }
+}

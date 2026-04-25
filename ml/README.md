@@ -36,6 +36,30 @@ Run from project root:
 python ml/train_skin_models.py
 ```
 
+For the robust 2-stage pipeline (gate + condition + abstain metadata, pretrained MobileNetV2 backbone):
+
+```bash
+python ml/train_privatecare_v2.py
+```
+
+For a more confident, reduced-class condition model:
+
+```bash
+python ml/train_privatecare_v2.py --reduced-classes
+```
+
+If you have not prepared gate datasets yet, train the condition model only:
+
+```bash
+python ml/train_privatecare_v2.py --skip-gates
+```
+
+You can combine both for fastest hackathon run:
+
+```bash
+python ml/train_privatecare_v2.py --skip-gates --reduced-classes
+```
+
 ## Output artifacts
 
 Generated under `ml/artifacts/`:
@@ -45,6 +69,24 @@ Generated under `ml/artifacts/`:
 - `derma23_keras.h5`
 - `derma23_tflite.tflite`
 - `class_maps.json`
+
+Generated under `ml/artifacts_v2/`:
+
+- `skin_gate.tflite` (`skin` vs `non_skin`)
+- `quality_gate.tflite` (`good` vs `poor`)
+- `condition_model.tflite` (23-class condition prediction)
+- `metadata.json` (thresholds and class mapping)
+
+## V2 gate datasets
+
+Before running `train_privatecare_v2.py`, create:
+
+- `ml/datasets/gate/skin_non_skin/skin`
+- `ml/datasets/gate/skin_non_skin/non_skin`
+- `ml/datasets/gate/quality/good`
+- `ml/datasets/gate/quality/poor`
+
+Use `ml/annotation/label_schema.md` and `ml/annotation/annotation_template.csv` to build consistent labels.
 
 ## Notes for hackathon demo
 

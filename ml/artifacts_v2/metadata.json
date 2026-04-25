@@ -1,0 +1,39 @@
+{
+  "input_size": [
+    224,
+    224,
+    3
+  ],
+  "condition_threshold": 0.45,
+  "margin_threshold": 0.1,
+  "skin_gate_threshold": 0.5,
+  "quality_gate_threshold": 0.5,
+  "training_quality_filter": {
+    "min_stddev": 18.0,
+    "min_brightness": 35.0,
+    "max_brightness": 225.0
+  },
+  "manifest_training": {
+    "manifest_path": "ml/annotation/dataset_manifest.csv",
+    "include_fair": true,
+    "exclude_needs_review": true
+  },
+  "reduced_classes": true,
+  "condition_class_map": {
+    "0": "inflammatory",
+    "1": "malignant_or_precancerous",
+    "2": "eczema_dermatitis",
+    "3": "autoimmune_bullous",
+    "4": "infectious_bacterial",
+    "5": "hair_nail_disorder",
+    "6": "infectious_viral_std",
+    "7": "pigment_light_disorder",
+    "8": "autoimmune_connective",
+    "9": "papulosquamous",
+    "10": "infestation_bite",
+    "11": "benign_tumor",
+    "12": "systemic_manifestation",
+    "13": "infectious_fungal",
+    "14": "vascular"
+  }
+}

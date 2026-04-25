@@ -13,6 +13,7 @@ Model training is currently in progress. Frontend/mobile development can continu
 - Mini photo preview appears in the analysis screen
 - Symptom input via text
 - Voice symptom capture (speech-to-text)
+- ZETIC Melange on-device model inference (when token/model key are configured)
 - Multi-agent local reasoning pipeline:
   - Vision agent (prototype signal)
   - Symptom agent (keyword + duration extraction)
@@ -32,6 +33,7 @@ This is expected because there is no backend or sync yet. Each device runs its o
 - Expo Router
 - `expo-camera`
 - `expo-speech-recognition`
+- `react-native-zetic-mlange`
 
 ## Project structure
 
@@ -67,9 +69,18 @@ export EXPO_PUBLIC_GEMINI_API_KEY=your_key_here
 
 If key is missing, app still works with local agent output only.
 
+5. Required for ZETIC Melange model init:
+
+```bash
+export EXPO_PUBLIC_ZETIC_PERSONAL_TOKEN=your_token_here
+export EXPO_PUBLIC_ZETIC_MODEL_KEY=your_model_key_here
+```
+
+Without these, the app runs symptom-only triage.
+
 ## Camera testing notes
 
-- Best testing is on a real phone with Expo Go
+- Best testing is on a real phone with a dev build (native modules required)
 - iOS simulator can be used for UI checks, but camera behavior is limited
 - Make sure laptop + phone are on same Wi-Fi
 - If connection fails, press `s` in Expo and switch to Tunnel
