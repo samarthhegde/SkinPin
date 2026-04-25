@@ -1,297 +1,333 @@
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { StyleSheet, SafeAreaView, TouchableOpacity, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { WebView } from 'react-native-webview';
-import { useRef, useState } from 'react';
 
 const PURPLE = '#7C3AED';
 const LAVENDER_BG = '#F3EFFE';
 const WHITE = '#FFFFFF';
 
-// Body part → 3D coordinate on the mannequin {x, y, z}
-// x: left(-)/right(+), y: up(+)/down(-), z: front(+)/back(-)
-const BODY_PART_COORDS: Record<string, { x: number; y: number; z: number }> = {
-  face:          { x: 0,    y: 1.55, z: 0.12 },
-  head:          { x: 0,    y: 1.65, z: 0 },
-  neck:          { x: 0,    y: 1.35, z: 0.08 },
-  chest:         { x: 0,    y: 1.05, z: 0.2 },
-  stomach:       { x: 0,    y: 0.7,  z: 0.2 },
-  back:          { x: 0,    y: 1.0,  z: -0.2 },
-  'left arm':    { x: -0.45, y: 1.0, z: 0 },
-  'right arm':   { x: 0.45,  y: 1.0, z: 0 },
-  'left hand':   { x: -0.55, y: 0.4, z: 0 },
-  'right hand':  { x: 0.55,  y: 0.4, z: 0 },
-  'left leg':    { x: -0.18, y: -0.4, z: 0 },
-  'right leg':   { x: 0.18,  y: -0.4, z: 0 },
-  'left foot':   { x: -0.18, y: -1.15, z: 0.1 },
-  'right foot':  { x: 0.18,  y: -1.15, z: 0.1 },
-  shoulder:      { x: 0.35,  y: 1.25, z: 0 },
-  'left shoulder': { x: -0.35, y: 1.25, z: 0 },
-  'right shoulder': { x: 0.35, y: 1.25, z: 0 },
-  hip:           { x: 0,    y: 0.1,  z: 0.1 },
-  knee:          { x: 0.15, y: -0.65, z: 0.12 },
+const BODY_PART_3D: Record<string, {x:number,y:number,z:number}> = {
+  face:             {x:0,    y:1.58, z:0.18},
+  head:             {x:0,    y:1.65, z:0},
+  neck:             {x:0,    y:1.32, z:0.12},
+  chest:            {x:0,    y:1.05, z:0.23},
+  stomach:          {x:0,    y:0.72, z:0.23},
+  abdomen:          {x:0,    y:0.65, z:0.23},
+  back:             {x:0,    y:1.0,  z:-0.23},
+  'lower back':     {x:0,    y:0.72, z:-0.23},
+  'upper back':     {x:0,    y:1.1,  z:-0.23},
+  'left arm':       {x:-0.55,y:1.0,  z:0},
+  'right arm':      {x:0.55, y:1.0,  z:0},
+  'left hand':      {x:-0.62,y:0.48, z:0},
+  'right hand':     {x:0.62, y:0.48, z:0},
+  'left leg':       {x:-0.2, y:0.1,  z:0},
+  'right leg':      {x:0.2,  y:0.1,  z:0},
+  'left foot':      {x:-0.2, y:-1.05,z:0.14},
+  'right foot':     {x:0.2,  y:-1.05,z:0.14},
+  'left shoulder':  {x:-0.42,y:1.22, z:0},
+  'right shoulder': {x:0.42, y:1.22, z:0},
+  shoulder:         {x:0.42, y:1.22, z:0},
+  hip:              {x:0,    y:0.42, z:0.18},
+  knee:             {x:0.2,  y:-0.38,z:0.12},
+  arm:              {x:0.55, y:1.0,  z:0},
+  leg:              {x:0.2,  y:0.1,  z:0},
+  foot:             {x:0.2,  y:-1.05,z:0.14},
+  hand:             {x:0.62, y:0.48, z:0},
 };
 
-function getCoords(bodyPart: string) {
-  const key = bodyPart?.toLowerCase().trim();
-  for (const [k, v] of Object.entries(BODY_PART_COORDS)) {
-    if (key?.includes(k)) return v;
+function getRashCoord(bodyPart: string) {
+  const key = (bodyPart || '').toLowerCase().trim();
+  for (const [k,v] of Object.entries(BODY_PART_3D)) {
+    if (key.includes(k)) return v;
   }
-  return { x: 0, y: 0.7, z: 0.2 }; // default: stomach
+  return {x:0, y:0.72, z:0.23};
 }
 
-function buildHtml(rashX: number, rashY: number, rashZ: number, condition: string, urgency: string) {
-  const dotColor = urgency === 'urgent' ? '#EF4444' : urgency === 'soon' ? '#F59E0B' : '#A78BFA';
-
+function buildHtml(rx: number, ry: number, rz: number, condition: string, urgency: string, bodyPart: string): string {
+  const dotColor = urgency==='urgent' ? '#EF4444' : urgency==='soon' ? '#F59E0B' : '#A78BFA';
   return `<!DOCTYPE html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#F3EFFE; overflow:hidden; font-family: -apple-system, sans-serif; }
-  canvas { display:block; }
-  #ui { position:absolute; bottom:0; left:0; right:0; background:rgba(255,255,255,0.95);
-        border-radius:20px 20px 0 0; padding:16px 20px 30px;
-        box-shadow: 0 -4px 20px rgba(124,58,237,0.15); }
-  #ui h3 { font-size:15px; font-weight:700; color:#4C1D95; margin-bottom:4px; }
-  #ui p  { font-size:12px; color:#6B7280; margin-bottom:12px; }
-  #slider-label { font-size:13px; color:#7C3AED; font-weight:600; margin-bottom:6px; }
-  input[type=range] { width:100%; accent-color:#7C3AED; cursor:pointer; }
-  #legend { display:flex; gap:12px; margin-top:10px; flex-wrap:wrap; }
-  .legend-item { display:flex; align-items:center; gap:5px; font-size:11px; color:#374151; }
-  .legend-dot { width:10px; height:10px; border-radius:50%; }
-  #hint { font-size:11px; color:#9CA3AF; text-align:center; margin-top:8px; }
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#F3EFFE;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+#cw{flex:1;display:flex;align-items:center;justify-content:center;position:relative}
+canvas{display:block;touch-action:none}
+#hint{position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:11px;color:#9CA3AF;pointer-events:none}
+#panel{background:rgba(255,255,255,.97);border-radius:22px 22px 0 0;padding:14px 18px 26px;box-shadow:0 -4px 20px rgba(124,58,237,.15)}
+.ptitle{font-size:14px;font-weight:700;color:#4C1D95;margin-bottom:2px}
+.psub{font-size:11px;color:#6B7280;margin-bottom:12px}
+.srow{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.slbl{font-size:13px;font-weight:700;color:#7C3AED;min-width:105px}
+input[type=range]{flex:1;accent-color:#7C3AED}
+.leg{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.li{display:flex;align-items:center;gap:5px;font-size:11px;color:#374151}
+.ld{width:10px;height:10px;border-radius:50%;flex-shrink:0}
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<div id="ui">
-  <h3>📍 Rash Location — ${condition}</h3>
-  <p>Drag to rotate • Pinch to zoom</p>
-  <div id="slider-label">Projection: Now</div>
-  <input type="range" id="timeline" min="0" max="3" step="1" value="0">
-  <div id="legend">
-    <div class="legend-item"><div class="legend-dot" style="background:${dotColor}"></div> Current rash</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#F97316;opacity:0.6"></div> 1 week spread</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#EF4444;opacity:0.4"></div> 1 month spread</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#991B1B;opacity:0.25"></div> 2 month spread</div>
+<div id="cw"><canvas id="c"></canvas><div id="hint">⬆ Drag to rotate in 3D</div></div>
+<div id="panel">
+  <div class="ptitle">📍 ${condition}</div>
+  <div class="psub">Location: ${bodyPart||'Body'}</div>
+  <div class="srow">
+    <span class="slbl" id="slbl">Now</span>
+    <input type="range" id="tl" min="0" max="3" step="1" value="0">
   </div>
-  <div id="hint">⬆ Drag the mannequin to rotate in 3D</div>
+  <div class="leg">
+    <div class="li"><div class="ld" style="background:${dotColor}"></div>Current</div>
+    <div class="li"><div class="ld" style="background:#F97316;opacity:.7"></div>+1 Week</div>
+    <div class="li"><div class="ld" style="background:#EF4444;opacity:.5"></div>+1 Month</div>
+    <div class="li"><div class="ld" style="background:#991B1B;opacity:.35"></div>+2 Months</div>
+  </div>
 </div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-const W = window.innerWidth;
-const H = window.innerHeight * 0.62;
+// ── 3D Software Renderer ──────────────────────────────────────────
+var W,H,cx,cy,SCALE;
+var canvas=document.getElementById('c');
+var ctx=canvas.getContext('2d');
+var rotY=0.3, rotX=0.08;
+var dragging=false,lastX=0,lastY=0;
+var projection=0;
+var pulse=0;
 
-const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true, alpha: true });
-renderer.setSize(W, H);
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.shadowMap.enabled = true;
+var RASH={x:${rx},y:${ry},z:${rz}};
+var DOT_COLOR='${dotColor}';
+var RING_COLORS=['#F97316','#EF4444','#991B1B'];
+var RING_ALPHA=[0.55,0.38,0.22];
+var SPREAD_LABELS=['Now','+1 Week','+1 Month','+2 Months'];
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xF3EFFE);
+// ── Vec3 helpers ──
+function rotY3(v,a){var c=Math.cos(a),s=Math.sin(a);return {x:v.x*c+v.z*s,y:v.y,z:-v.x*s+v.z*c};}
+function rotX3(v,a){var c=Math.cos(a),s=Math.sin(a);return {x:v.x,y:v.y*c-v.z*s,z:v.y*s+v.z*c};}
+function rotate(v){return rotX3(rotY3(v,rotY),rotX);}
+function project(v){
+  var fov=2.8, z=v.z+fov;
+  return {x:cx+v.x*(SCALE*fov)/z, y:cy-v.y*(SCALE*fov)/z, z:v.z};
+}
+function pr(v){return project(rotate(v));}
 
-const camera = new THREE.PerspectiveCamera(45, W / H, 0.1, 100);
-camera.position.set(0, 0.3, 4.5);
-
-// Lights
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-dir.position.set(3, 5, 3);
-scene.add(dir);
-const fill = new THREE.DirectionalLight(0xC4B5FD, 0.3);
-fill.position.set(-3, 2, -2);
-scene.add(fill);
-
-// ── Build mannequin from primitives ──
-const skin = new THREE.MeshLambertMaterial({ color: 0xE8D5C4 });
-const skinDark = new THREE.MeshLambertMaterial({ color: 0xD4C0AD });
-
-function capsule(rx, ry, rz, height, mat) {
-  const g = new THREE.CapsuleGeometry ? 
-    new THREE.CapsuleGeometry(Math.max(rx,rz), height, 8, 16) :
-    new THREE.CylinderGeometry(Math.max(rx,rz), Math.max(rx,rz), height, 16);
-  return new THREE.Mesh(g, mat);
+// ── Box primitive: center(cx,cy,cz), half-sizes(hw,hh,hd) ──
+function makeBox(ox,oy,oz,hw,hh,hd,baseColor){
+  var v=[
+    {x:ox-hw,y:oy+hh,z:oz-hd},{x:ox+hw,y:oy+hh,z:oz-hd},
+    {x:ox+hw,y:oy-hh,z:oz-hd},{x:ox-hw,y:oy-hh,z:oz-hd},
+    {x:ox-hw,y:oy+hh,z:oz+hd},{x:ox+hw,y:oy+hh,z:oz+hd},
+    {x:ox+hw,y:oy-hh,z:oz+hd},{x:ox-hw,y:oy-hh,z:oz+hd},
+  ];
+  return {verts:v,faces:[
+    {idx:[4,5,6,7],n:{x:0,y:0,z:1},shade:1.0},   // front
+    {idx:[1,0,3,2],n:{x:0,y:0,z:-1},shade:0.55},  // back
+    {idx:[0,1,5,4],n:{x:0,y:1,z:0},shade:0.85},   // top
+    {idx:[3,7,6,2],n:{x:0,y:-1,z:0},shade:0.45},  // bottom
+    {idx:[0,4,7,3],n:{x:-1,y:0,z:0},shade:0.72},  // left
+    {idx:[5,1,2,6],n:{x:1,y:0,z:0},shade:0.72},   // right
+  ],color:baseColor};
 }
 
-function sphere(r, mat) {
-  return new THREE.Mesh(new THREE.SphereGeometry(r, 16, 16), mat);
+// ── Body definition ──
+var SKIN='#E8C9A0', SKIN2='#D4B090', SHIRT='#7C3AED', PANTS='#374151';
+var parts=[
+  // HEAD
+  makeBox(0,1.62,0,    0.18,0.20,0.17, SKIN),
+  // NECK
+  makeBox(0,1.33,0,    0.07,0.10,0.07, SKIN),
+  // TORSO (shirt)
+  makeBox(0,0.92,0,    0.24,0.32,0.14, SHIRT),
+  // HIPS
+  makeBox(0,0.52,0,    0.22,0.12,0.13, PANTS),
+  // LEFT UPPER ARM
+  makeBox(-0.40,1.02,0, 0.08,0.20,0.08, SKIN2),
+  // LEFT FOREARM
+  makeBox(-0.44,0.65,0, 0.065,0.18,0.065, SKIN),
+  // LEFT HAND
+  makeBox(-0.46,0.42,0, 0.065,0.075,0.045, SKIN),
+  // RIGHT UPPER ARM
+  makeBox(0.40,1.02,0,  0.08,0.20,0.08, SKIN2),
+  // RIGHT FOREARM
+  makeBox(0.44,0.65,0,  0.065,0.18,0.065, SKIN),
+  // RIGHT HAND
+  makeBox(0.46,0.42,0,  0.065,0.075,0.045, SKIN),
+  // LEFT THIGH
+  makeBox(-0.16,0.22,0, 0.10,0.22,0.10, PANTS),
+  // LEFT SHIN
+  makeBox(-0.16,-0.20,0,0.08,0.20,0.08, SKIN),
+  // LEFT FOOT
+  makeBox(-0.16,-0.50,0.06,0.09,0.055,0.16, SKIN2),
+  // RIGHT THIGH
+  makeBox(0.16,0.22,0,  0.10,0.22,0.10, PANTS),
+  // RIGHT SHIN
+  makeBox(0.16,-0.20,0, 0.08,0.20,0.08, SKIN),
+  // RIGHT FOOT
+  makeBox(0.16,-0.50,0.06,0.09,0.055,0.16, SKIN2),
+];
+
+// ── Face rendering ──
+function hexToRgb(h){
+  var r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);
+  return {r:r,g:g,b:b};
+}
+function shadedColor(hex,shade,alpha){
+  var c=hexToRgb(hex);
+  var r=Math.round(c.r*shade),g=Math.round(c.g*shade),b=Math.round(c.b*shade);
+  if(alpha===undefined) return 'rgb('+r+','+g+','+b+')';
+  return 'rgba('+r+','+g+','+b+','+alpha+')';
 }
 
-const body = new THREE.Group();
+function drawScene(){
+  ctx.clearRect(0,0,W,H);
+  // Subtle background gradient
+  var bg=ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#F3EFFE');bg.addColorStop(1,'#E9E0FF');
+  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
 
-// Torso
-const torso = capsule(0.22, 0.22, 0.22, 0.65, skin);
-torso.position.set(0, 0.85, 0);
-body.add(torso);
+  // Shadow on floor
+  var shadowY=cy+SCALE*0.78;
+  var grad=ctx.createRadialGradient(cx,shadowY,2,cx,shadowY,SCALE*0.35);
+  grad.addColorStop(0,'rgba(124,58,237,0.18)');grad.addColorStop(1,'rgba(124,58,237,0)');
+  ctx.beginPath();ctx.ellipse(cx,shadowY,SCALE*0.32,SCALE*0.06,0,0,Math.PI*2);
+  ctx.fillStyle=grad;ctx.fill();
 
-// Hips
-const hips = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 12), skin);
-hips.scale.set(1.2, 0.7, 0.9);
-hips.position.set(0, 0.42, 0);
-body.add(hips);
+  // Collect all faces with depth
+  var allFaces=[];
+  for(var p=0;p<parts.length;p++){
+    var part=parts[p];
+    for(var f=0;f<part.faces.length;f++){
+      var face=part.faces[f];
+      // Backface culling: rotate normal, check z
+      var rn=rotate(face.n);
+      if(rn.z<0) continue;
+      var projected=[];
+      var avgZ=0;
+      for(var i=0;i<face.idx.length;i++){
+        var pv=pr(part.verts[face.idx[i]]);
+        projected.push(pv);
+        avgZ+=pv.z; // actually use rotated z for depth
+      }
+      var rotatedCenter=rotate({
+        x:(part.verts[face.idx[0]].x+part.verts[face.idx[2]].x)/2,
+        y:(part.verts[face.idx[0]].y+part.verts[face.idx[2]].y)/2,
+        z:(part.verts[face.idx[0]].z+part.verts[face.idx[2]].z)/2,
+      });
+      allFaces.push({pts:projected,shade:face.shade,color:part.color,depth:rotatedCenter.z});
+    }
+  }
+  // Painter's algorithm: back to front
+  allFaces.sort(function(a,b){return a.depth-b.depth;});
 
-// Head
-const head = sphere(0.18, skin);
-head.position.set(0, 1.55, 0);
-body.add(head);
+  for(var i=0;i<allFaces.length;i++){
+    var af=allFaces[i];
+    ctx.beginPath();
+    ctx.moveTo(af.pts[0].x,af.pts[0].y);
+    for(var j=1;j<af.pts.length;j++) ctx.lineTo(af.pts[j].x,af.pts[j].y);
+    ctx.closePath();
+    ctx.fillStyle=shadedColor(af.color,af.shade);
+    ctx.fill();
+    ctx.strokeStyle=shadedColor(af.color,af.shade*0.7);
+    ctx.lineWidth=0.6;
+    ctx.stroke();
+  }
 
-// Neck
-const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.18, 12), skin);
-neck.position.set(0, 1.33, 0);
-body.add(neck);
+  // Face details
+  var headCenter=pr({x:0,y:1.62,z:0});
+  var es=SCALE*0.045;
+  // Eyes
+  ctx.fillStyle='#4A3728';
+  ctx.beginPath();ctx.ellipse(headCenter.x-es*1.4,headCenter.y-es*0.5,es,es*1.1,0,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(headCenter.x+es*1.4,headCenter.y-es*0.5,es,es*1.1,0,0,Math.PI*2);ctx.fill();
+  // Pupils
+  ctx.fillStyle='#fff';
+  ctx.beginPath();ctx.ellipse(headCenter.x-es*1.1,headCenter.y-es*0.8,es*0.4,es*0.4,0,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(headCenter.x+es*1.7,headCenter.y-es*0.8,es*0.4,es*0.4,0,0,Math.PI*2);ctx.fill();
+  // Smile
+  ctx.beginPath();
+  ctx.arc(headCenter.x,headCenter.y+es*0.8,es*1.2,0.15,Math.PI-0.15);
+  ctx.strokeStyle='#A0725A';ctx.lineWidth=es*0.6;ctx.stroke();
 
-// Left arm
-const lUpperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.35, 12), skin);
-lUpperArm.position.set(-0.35, 1.0, 0);
-lUpperArm.rotation.z = 0.15;
-body.add(lUpperArm);
-const lForeArm = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.05, 0.3, 12), skin);
-lForeArm.position.set(-0.45, 0.65, 0);
-lForeArm.rotation.z = 0.1;
-body.add(lForeArm);
-const lHand = sphere(0.065, skin);
-lHand.position.set(-0.52, 0.45, 0);
-body.add(lHand);
+  // ── Rash marker ──
+  var rp=pr(RASH);
+  // Check if rash is visible (front-facing): rotate rash pos and check z
+  var rr=rotate(RASH);
+  var rashVisible=(rr.z>-0.05);
 
-// Right arm
-const rUpperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.35, 12), skin);
-rUpperArm.position.set(0.35, 1.0, 0);
-rUpperArm.rotation.z = -0.15;
-body.add(rUpperArm);
-const rForeArm = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.05, 0.3, 12), skin);
-rForeArm.position.set(0.45, 0.65, 0);
-rForeArm.rotation.z = -0.1;
-body.add(rForeArm);
-const rHand = sphere(0.065, skin);
-rHand.position.set(0.52, 0.45, 0);
-body.add(rHand);
+  if(rashVisible){
+    // Spread rings
+    for(var ri=2;ri>=0;ri--){
+      if(projection>=ri+1){
+        var ringR=(22+ri*22)*SCALE/120;
+        ctx.beginPath();ctx.arc(rp.x,rp.y,ringR,0,Math.PI*2);
+        ctx.fillStyle=RING_COLORS[ri];
+        ctx.globalAlpha=RING_ALPHA[ri];
+        ctx.fill();
+        ctx.globalAlpha=1;
+      }
+    }
+    // Glow
+    var gr=(14+4*Math.sin(pulse))*SCALE/120;
+    var grd=ctx.createRadialGradient(rp.x,rp.y,0,rp.x,rp.y,gr*2.5);
+    grd.addColorStop(0,DOT_COLOR+'BB');grd.addColorStop(1,DOT_COLOR+'00');
+    ctx.beginPath();ctx.arc(rp.x,rp.y,gr*2.5,0,Math.PI*2);
+    ctx.fillStyle=grd;ctx.fill();
+    // Core dot
+    var dr=(5+1.5*Math.sin(pulse))*SCALE/120;
+    ctx.beginPath();ctx.arc(rp.x,rp.y,dr,0,Math.PI*2);
+    ctx.fillStyle=DOT_COLOR;ctx.fill();
+    ctx.strokeStyle='#fff';ctx.lineWidth=1.2;ctx.stroke();
+    // Label
+    ctx.fillStyle='#4C1D95';
+    ctx.font='bold '+(Math.max(9,Math.round(10*SCALE/120)))+'px -apple-system,sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText('\\u{1F4CD} Rash',rp.x,rp.y-dr-6);
+  }
+}
 
-// Left leg
-const lThigh = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.085, 0.45, 12), skin);
-lThigh.position.set(-0.15, 0.1, 0);
-body.add(lThigh);
-const lShin = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.065, 0.42, 12), skin);
-lShin.position.set(-0.15, -0.38, 0);
-body.add(lShin);
-const lFoot = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.18), skin);
-lFoot.position.set(-0.15, -0.64, 0.05);
-body.add(lFoot);
+// ── Resize ──
+function resize(){
+  var cw=document.getElementById('cw');
+  W=cw.clientWidth; H=cw.clientHeight;
+  canvas.width=W; canvas.height=H;
+  cx=W/2; cy=H/2+H*0.04;
+  SCALE=Math.min(W,H)*0.72;
+  drawScene();
+}
+window.addEventListener('resize',resize);
 
-// Right leg
-const rThigh = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.085, 0.45, 12), skin);
-rThigh.position.set(0.15, 0.1, 0);
-body.add(rThigh);
-const rShin = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.065, 0.42, 12), skin);
-rShin.position.set(0.15, -0.38, 0);
-body.add(rShin);
-const rFoot = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.18), skin);
-rFoot.position.set(0.15, -0.64, 0.05);
-body.add(rFoot);
-
-scene.add(body);
-
-// ── Rash marker ──
-const rashPos = new THREE.Vector3(${rashX}, ${rashY}, ${rashZ});
-
-// Pulsing core dot
-const rashMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('${dotColor}'), transparent: true, opacity: 0.95 });
-const rashDot = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), rashMat);
-rashDot.position.copy(rashPos);
-body.add(rashDot);
-
-// Spread rings (4 levels: 0=now, 1=1wk, 2=1mo, 3=2mo)
-const ringColors = [0xF97316, 0xEF4444, 0x991B1B];
-const ringRadii  = [0.09, 0.16, 0.25];
-const ringOpacity = [0.55, 0.35, 0.2];
-const rings = [];
-
-ringColors.forEach((color, i) => {
-  const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, side: THREE.DoubleSide });
-  const ring = new THREE.Mesh(new THREE.RingGeometry(ringRadii[i] - 0.012, ringRadii[i], 32), mat);
-  ring.position.copy(rashPos);
-  ring.lookAt(camera.position);
-  body.add(ring);
-  rings.push({ mesh: ring, baseOpacity: ringOpacity[i], mat });
+// ── Input ──
+canvas.addEventListener('touchstart',function(e){dragging=true;lastX=e.touches[0].clientX;lastY=e.touches[0].clientY;},{passive:true});
+canvas.addEventListener('touchmove',function(e){
+  if(!dragging)return;
+  rotY+=(e.touches[0].clientX-lastX)*0.016;
+  rotX+=(e.touches[0].clientY-lastY)*0.01;
+  rotX=Math.max(-0.55,Math.min(0.55,rotX));
+  lastX=e.touches[0].clientX;lastY=e.touches[0].clientY;
+},{passive:true});
+canvas.addEventListener('touchend',function(){dragging=false;});
+canvas.addEventListener('mousedown',function(e){dragging=true;lastX=e.clientX;lastY=e.clientY;});
+window.addEventListener('mouseup',function(){dragging=false;});
+window.addEventListener('mousemove',function(e){
+  if(!dragging)return;
+  rotY+=(e.clientX-lastX)*0.016;
+  rotX+=(e.clientY-lastY)*0.01;
+  rotX=Math.max(-0.55,Math.min(0.55,rotX));
+  lastX=e.clientX;lastY=e.clientY;
+  drawScene();
 });
 
-// Labels
-const labels = ['Now', '+ 1 Week', '+ 1 Month', '+ 2 Months'];
-const slider = document.getElementById('timeline');
-const sliderLabel = document.getElementById('slider-label');
-
-function updateProjection(val) {
-  sliderLabel.textContent = 'Projection: ' + labels[val];
-  rings.forEach((r, i) => {
-    r.mat.opacity = val >= i + 1 ? r.baseOpacity : 0;
-  });
-}
-slider.addEventListener('input', (e) => updateProjection(parseInt(e.target.value)));
-
-// ── Orbit controls (touch + mouse) ──
-let isDragging = false, lastX = 0, lastY = 0;
-let rotX = 0.1, rotY = 0;
-let pinchDist0 = 0, scale0 = 1, currentScale = 1;
-
-const canvas = renderer.domElement;
-
-canvas.addEventListener('mousedown', e => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
-canvas.addEventListener('mouseup', () => isDragging = false);
-canvas.addEventListener('mousemove', e => {
-  if (!isDragging) return;
-  rotY += (e.clientX - lastX) * 0.012;
-  rotX += (e.clientY - lastY) * 0.008;
-  rotX = Math.max(-0.6, Math.min(0.6, rotX));
-  lastX = e.clientX; lastY = e.clientY;
+document.getElementById('tl').addEventListener('input',function(e){
+  projection=parseInt(e.target.value);
+  document.getElementById('slbl').textContent=SPREAD_LABELS[projection];
+  drawScene();
 });
-
-canvas.addEventListener('touchstart', e => {
-  if (e.touches.length === 1) {
-    isDragging = true;
-    lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
-  } else if (e.touches.length === 2) {
-    isDragging = false;
-    const dx = e.touches[0].clientX - e.touches[1].clientX;
-    const dy = e.touches[0].clientY - e.touches[1].clientY;
-    pinchDist0 = Math.sqrt(dx*dx + dy*dy);
-    scale0 = currentScale;
-  }
-}, { passive: true });
-
-canvas.addEventListener('touchmove', e => {
-  e.preventDefault();
-  if (e.touches.length === 1 && isDragging) {
-    rotY += (e.touches[0].clientX - lastX) * 0.014;
-    rotX += (e.touches[0].clientY - lastY) * 0.009;
-    rotX = Math.max(-0.6, Math.min(0.6, rotX));
-    lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
-  } else if (e.touches.length === 2) {
-    const dx = e.touches[0].clientX - e.touches[1].clientX;
-    const dy = e.touches[0].clientY - e.touches[1].clientY;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    currentScale = Math.max(0.5, Math.min(2.0, scale0 * (dist / pinchDist0)));
-    camera.position.z = 4.5 / currentScale;
-  }
-}, { passive: false });
-
-canvas.addEventListener('touchend', () => { isDragging = false; });
 
 // ── Animate ──
-let pulse = 0;
-function animate() {
+function animate(){
   requestAnimationFrame(animate);
-  pulse += 0.05;
-  rashDot.scale.setScalar(1 + 0.18 * Math.sin(pulse));
-
-  body.rotation.y = rotY;
-  body.rotation.x = rotX;
-
-  // Keep rings facing camera
-  rings.forEach(r => r.mesh.lookAt(camera.position));
-
-  renderer.render(scene, camera);
+  pulse+=0.06;
+  if(!dragging) rotY+=0.004; // slow auto-spin when idle
+  drawScene();
 }
+resize();
 animate();
 </script>
 </body>
@@ -301,48 +337,26 @@ animate();
 export default function BodyMapScreen() {
   const router = useRouter();
   const { bodyPart, condition, urgency } = useLocalSearchParams<{
-    bodyPart: string;
-    condition: string;
-    urgency: string;
+    bodyPart: string; condition: string; urgency: string;
   }>();
-
-  const [loading, setLoading] = useState(true);
-  const coords = getCoords(bodyPart || 'chest');
-  const html = buildHtml(coords.x, coords.y, coords.z, condition || 'Skin condition', urgency || 'monitor');
+  const coord = getRashCoord(bodyPart || 'chest');
+  const html = buildHtml(coord.x, coord.y, coord.z, condition || 'Skin Condition', urgency || 'monitor', bodyPart || 'Body');
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>3D Body Map</Text>
+        <Text style={styles.title}>3D Body Map</Text>
         <View style={{ width: 60 }} />
       </View>
-
-      {/* Info pill */}
-      <View style={styles.infoPill}>
-        <Text style={styles.infoPillText}>
-          📍 {bodyPart || 'Body'} · {condition || 'Condition'}
-        </Text>
-      </View>
-
-      {loading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color={PURPLE} />
-          <Text style={styles.loadingText}>Building 3D model…</Text>
-        </View>
-      )}
-
       <WebView
         source={{ html }}
-        style={styles.webview}
+        style={{ flex: 1, backgroundColor: LAVENDER_BG }}
         originWhitelist={['*']}
         javaScriptEnabled
         scrollEnabled={false}
-        onLoad={() => setLoading(false)}
-        allowFileAccess
         mixedContentMode="always"
       />
     </SafeAreaView>
@@ -350,53 +364,13 @@ export default function BodyMapScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: LAVENDER_BG,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: WHITE,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EDE9FE',
+  safe:    { flex: 1, backgroundColor: LAVENDER_BG },
+  header:  {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: WHITE, paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: '#EDE9FE',
   },
   backBtn: { padding: 4 },
-  backText: { color: PURPLE, fontSize: 15, fontWeight: '600' },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#1F2937' },
-  infoPill: {
-    alignSelf: 'center',
-    backgroundColor: '#EDE9FE',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    marginTop: 10,
-    marginBottom: 4,
-  },
-  infoPillText: {
-    color: PURPLE,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  webview: {
-    flex: 1,
-    backgroundColor: LAVENDER_BG,
-  },
-  loadingOverlay: {
-    position: 'absolute',
-    top: '35%',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 10,
-    gap: 10,
-  },
-  loadingText: {
-    color: PURPLE,
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  backText:{ color: PURPLE, fontSize: 15, fontWeight: '600' },
+  title:   { fontSize: 17, fontWeight: '700', color: '#1F2937' },
 });
