@@ -200,6 +200,30 @@ export default function ResultsScreen() {
             </Text>
           </View>
 
+          {/* 3D Body Map */}
+          <TouchableOpacity
+            style={styles.bodyMapBtn}
+            onPress={() => router.push({
+              pathname: '/body-map',
+              params: {
+                bodyPart: symptoms?.toLowerCase().includes('arm') ? 'arm'
+                  : symptoms?.toLowerCase().includes('leg') ? 'leg'
+                  : symptoms?.toLowerCase().includes('face') ? 'face'
+                  : symptoms?.toLowerCase().includes('back') ? 'back'
+                  : symptoms?.toLowerCase().includes('hand') ? 'hand'
+                  : symptoms?.toLowerCase().includes('foot') ? 'foot'
+                  : symptoms?.toLowerCase().includes('neck') ? 'neck'
+                  : symptoms?.toLowerCase().includes('chest') ? 'chest'
+                  : 'chest',
+                condition: output?.consensus.condition ?? 'Skin Condition',
+                urgency: urgency,
+              },
+            })}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.bodyMapBtnText}>🫀 View 3D Body Map & Spread Projection</Text>
+          </TouchableOpacity>
+
           {/* Scan Again */}
           <TouchableOpacity
             style={styles.scanAgainBtn}
@@ -424,6 +448,17 @@ const styles = StyleSheet.create({
   scanAgainText: {
     color: PURPLE,
     fontSize: 16,
+    fontWeight: '700',
+  },
+  bodyMapBtn: {
+    backgroundColor: PURPLE,
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  bodyMapBtnText: {
+    color: WHITE,
+    fontSize: 15,
     fontWeight: '700',
   },
 });
