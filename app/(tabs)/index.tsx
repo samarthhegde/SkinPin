@@ -1,19 +1,66 @@
-import { useState } from 'react';
-import { Button, Image, ScrollView, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Button,
+  Image,
+  Pressable,
+  ScrollView,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { getGeminiExplanation } from '@/lib/gemini';
+import { LocalAgentOutput, runLocalAgentPipeline } from '@/lib/agents';
 
-type Analysis = {
-  condition: string;
-  confidence: string;
-  note: string;
-};
+let speechRecognitionModule: any = null;
+try {
+  // Dynamically loaded to avoid crashing Expo Go if native module is unavailable.
+  // In that case, the app still works with text-only symptom input.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const speechPkg = require('expo-speech-recognition');
+  speechRecognitionModule = speechPkg.ExpoSpeechRecognitionModule;
+} catch {
+  speechRecognitionModule = null;
+}
+
+function urgencyColor(urgency: 'monitor' | 'soon' | 'urgent'): string {
+  if (urgency === 'urgent') return '#B91C1C';
+  if (urgency === 'soon') return '#B45309';
+  return '#166534';
+}
 
 export default function HomeScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [cameraRef, setCameraRef] = useState<CameraView | null>(null);
   const [symptoms, setSymptoms] = useState('');
-  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [agentOutput, setAgentOutput] = useState<LocalAgentOutput | null>(null);
+  const [geminiExplanation, setGeminiExplanation] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [sensitiveMode, setSensitiveMode] = useState(true);
+  const speechEnabled = useMemo(() => speechRecognitionModule !== null, []);
+
+  useEffect(() => {
+    if (!speechRecognitionModule) return;
+
+    const resultSub = speechRecognitionModule.addListener('result', (event: any) => {
+      const topResult = event?.results?.[0]?.transcript;
+      if (topResult) {
+        setSymptoms((prev) => `${prev}${prev ? ' ' : ''}${topResult}`.trim());
+      }
+    });
+    const errorSub = speechRecognitionModule.addListener('error', () => setIsListening(false));
+    const endSub = speechRecognitionModule.addListener('end', () => setIsListening(false));
+
+    return () => {
+      resultSub?.remove?.();
+      errorSub?.remove?.();
+      endSub?.remove?.();
+    };
+  }, []);
 
   if (!permission) {
     return <View style={{ flex: 1 }} />;
@@ -34,60 +81,103 @@ export default function HomeScreen() {
     if (!cameraRef) return;
     const photo = await cameraRef.takePictureAsync();
     setPhotoUri(photo.uri);
-    setAnalysis(null);
+    setAgentOutput(null);
+    setGeminiExplanation(null);
   };
 
-  const runLocalAnalysis = () => {
-    const normalized = symptoms.toLowerCase();
+  const startVoiceInput = async () => {
+    if (!speechRecognitionModule) return;
+    const permissions = await speechRecognitionModule.requestPermissionsAsync();
+    if (!permissions.granted) return;
+    setIsListening(true);
+    speechRecognitionModule.start({
+      lang: 'en-US',
+      interimResults: false,
+      maxAlternatives: 1,
+      requiresOnDeviceRecognition: true,
+      addsPunctuation: true,
+    });
+  };
 
-    let result: Analysis = {
-      condition: 'Mild skin irritation',
-      confidence: 'Medium',
-      note: 'Monitor for 24-48 hours and avoid new skin products.',
-    };
+  const stopVoiceInput = () => {
+    if (!speechRecognitionModule) return;
+    speechRecognitionModule.stop();
+    setIsListening(false);
+  };
 
-    if (normalized.includes('itch') || normalized.includes('itchy')) {
-      result = {
-        condition: 'Possible eczema or allergic reaction',
-        confidence: 'Medium',
-        note: 'Keep area clean and moisturized; seek care if worsening.',
-      };
-    }
+  const runLocalAnalysis = async () => {
+    setIsAnalyzing(true);
+    const output = runLocalAgentPipeline(symptoms);
+    setAgentOutput(output);
 
-    if (normalized.includes('pain') || normalized.includes('spreading')) {
-      result = {
-        condition: 'Possible inflammatory rash',
-        confidence: 'Medium-High',
-        note: 'Because symptoms include pain/spreading, consider urgent clinical review.',
-      };
-    }
-
-    if (normalized.includes('fever')) {
-      result = {
-        condition: 'Potential infection risk',
-        confidence: 'High',
-        note: 'Fever with skin symptoms should be evaluated by a clinician quickly.',
-      };
-    }
-
-    setAnalysis(result);
+    const geminiText = await getGeminiExplanation({
+      symptoms,
+      condition: output.consensus.condition,
+      confidence: output.consensus.confidence,
+      urgency: output.consensus.urgency,
+      whenToSeeDoctor: output.consensus.whenToSeeDoctor,
+    });
+    setGeminiExplanation(geminiText);
+    setIsAnalyzing(false);
   };
 
   const resetSession = () => {
     setPhotoUri(null);
     setSymptoms('');
-    setAnalysis(null);
+    setAgentOutput(null);
+    setGeminiExplanation(null);
+    stopVoiceInput();
   };
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
       {photoUri ? (
-        <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
-          <Image source={{ uri: photoUri }} style={{ width: '100%', height: 340 }} />
-          <View style={{ paddingHorizontal: 16, paddingVertical: 20, gap: 12 }}>
-            <Text style={{ fontSize: 20, fontWeight: '700' }}>PrivateCare Local Scan</Text>
-            <Text>Photo captured locally. Add symptoms for a quick on-device estimate.</Text>
+        <ScrollView contentContainerStyle={{ paddingBottom: 36 }}>
+          <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 10 }}>
+            <Text style={{ fontSize: 24, fontWeight: '800' }}>PrivateCare</Text>
+            <Text style={{ color: '#374151' }}>
+              Local-first skin analysis. No cloud upload in Sensitive Mode.
+            </Text>
+          </View>
 
+          <View
+            style={{
+              marginHorizontal: 16,
+              marginTop: 14,
+              borderRadius: 14,
+              backgroundColor: '#FFFFFF',
+              padding: 14,
+              gap: 10,
+            }}>
+            <Text style={{ fontWeight: '700' }}>Captured Image</Text>
+            <Image source={{ uri: photoUri }} style={{ width: 120, height: 120, borderRadius: 10 }} />
+
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}>
+              <Text style={{ fontWeight: '600' }}>Sensitive Mode</Text>
+              <Switch value={sensitiveMode} onValueChange={setSensitiveMode} />
+            </View>
+            <Text style={{ fontSize: 12, color: '#4B5563' }}>
+              {sensitiveMode
+                ? 'Session data is memory-only and can be cleared immediately.'
+                : 'Normal mode keeps the session in app memory until reset.'}
+            </Text>
+          </View>
+
+          <View
+            style={{
+              marginHorizontal: 16,
+              marginTop: 12,
+              borderRadius: 14,
+              backgroundColor: '#FFFFFF',
+              padding: 14,
+              gap: 10,
+            }}>
+            <Text style={{ fontWeight: '700' }}>Symptoms and Duration</Text>
             <TextInput
               value={symptoms}
               onChangeText={setSymptoms}
@@ -104,34 +194,129 @@ export default function HomeScreen() {
               }}
             />
 
-            <Button title="Analyze Locally" onPress={runLocalAnalysis} />
-
-            {analysis ? (
-              <View
-                style={{
-                  borderWidth: 1,
-                  borderColor: '#D1D5DB',
-                  borderRadius: 10,
-                  padding: 12,
-                  gap: 6,
-                  backgroundColor: '#F9FAFB',
-                }}>
-                <Text style={{ fontWeight: '700' }}>Possible Condition: {analysis.condition}</Text>
-                <Text>Confidence: {analysis.confidence}</Text>
-                <Text>Guidance: {analysis.note}</Text>
-                <Text style={{ fontSize: 12, color: '#4B5563' }}>
-                  Prototype output only. Not a medical diagnosis.
-                </Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Pressable
+                  onPress={isListening ? stopVoiceInput : startVoiceInput}
+                  disabled={!speechEnabled}
+                  style={{
+                    backgroundColor: !speechEnabled ? '#9CA3AF' : isListening ? '#DC2626' : '#1D4ED8',
+                    borderRadius: 10,
+                    paddingVertical: 12,
+                    alignItems: 'center',
+                  }}>
+                  <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>
+                    {!speechEnabled
+                      ? 'Voice (Dev Build Required)'
+                      : isListening
+                        ? 'Stop Voice Input'
+                        : 'Speak Symptoms'}
+                  </Text>
+                </Pressable>
               </View>
+              <View style={{ flex: 1 }}>
+                <Pressable
+                  onPress={runLocalAnalysis}
+                  style={{
+                    backgroundColor: '#111827',
+                    borderRadius: 10,
+                    paddingVertical: 12,
+                    alignItems: 'center',
+                  }}>
+                  <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>Analyze</Text>
+                </Pressable>
+              </View>
+            </View>
+            {isListening ? <Text style={{ color: '#1D4ED8' }}>Listening...</Text> : null}
+            {!speechEnabled ? (
+              <Text style={{ color: '#6B7280', fontSize: 12 }}>
+                Voice input requires a development build with native speech module.
+              </Text>
             ) : null}
+          </View>
 
+          {isAnalyzing ? (
+            <View style={{ marginTop: 16, alignItems: 'center' }}>
+              <ActivityIndicator size="large" />
+              <Text style={{ marginTop: 8, color: '#4B5563' }}>Running multi-agent analysis...</Text>
+            </View>
+          ) : null}
+
+          {agentOutput ? (
+            <View
+              style={{
+                marginHorizontal: 16,
+                marginTop: 12,
+                borderRadius: 14,
+                backgroundColor: '#FFFFFF',
+                padding: 14,
+                gap: 8,
+              }}>
+              <Text style={{ fontSize: 18, fontWeight: '800' }}>AI Consensus</Text>
+              <Text style={{ fontWeight: '700' }}>Condition: {agentOutput.consensus.condition}</Text>
+              <Text>Confidence: {(agentOutput.consensus.confidence * 100).toFixed(0)}%</Text>
+              <Text style={{ color: urgencyColor(agentOutput.consensus.urgency), fontWeight: '700' }}>
+                Urgency: {agentOutput.consensus.urgency.toUpperCase()}
+              </Text>
+              <Text>When to see doctor: {agentOutput.consensus.whenToSeeDoctor}</Text>
+
+              <View style={{ marginTop: 8, gap: 6 }}>
+                <Text style={{ fontWeight: '700' }}>Agent Trace</Text>
+                {agentOutput.trace.map((item) => (
+                  <Text key={item.agent}>
+                    - {item.agent}: {item.message}
+                  </Text>
+                ))}
+              </View>
+
+              {geminiExplanation ? (
+                <View style={{ marginTop: 8, gap: 6 }}>
+                  <Text style={{ fontWeight: '700' }}>Gemini Explanation</Text>
+                  <Text>{geminiExplanation}</Text>
+                </View>
+              ) : (
+                <Text style={{ marginTop: 8, color: '#4B5563' }}>
+                  Add EXPO_PUBLIC_GEMINI_API_KEY in env to enable LLM explanation.
+                </Text>
+              )}
+
+              <Text style={{ marginTop: 6, fontSize: 12, color: '#4B5563' }}>
+                Prototype only, not a medical diagnosis.
+              </Text>
+            </View>
+          ) : null}
+
+          <View style={{ marginHorizontal: 16, marginTop: 12, gap: 10 }}>
             <Button title="Retake Photo" onPress={() => setPhotoUri(null)} />
-            <Button title="Clear Session Data" onPress={resetSession} />
+            <Button
+              title={sensitiveMode ? 'Clear Session (Sensitive Mode)' : 'Clear Session Data'}
+              onPress={resetSession}
+            />
           </View>
         </ScrollView>
       ) : (
         <CameraView style={{ flex: 1 }} ref={setCameraRef}>
-          <View style={{ flex: 1, justifyContent: 'flex-end', alignItems: 'center', padding: 24 }}>
+          <View style={{ flex: 1, justifyContent: 'space-between', padding: 24 }}>
+            <View style={{ marginTop: 24 }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '800' }}>PrivateCare</Text>
+              <Text style={{ color: '#E5E7EB' }}>Capture a skin photo for local-first AI triage.</Text>
+            </View>
+
+            <View style={{ alignItems: 'center', gap: 14 }}>
+              <Pressable
+                onPress={takePhoto}
+                style={{
+                  width: 78,
+                  height: 78,
+                  borderRadius: 999,
+                  backgroundColor: '#FFFFFF',
+                  borderWidth: 6,
+                  borderColor: '#D1D5DB',
+                }}
+              />
+              <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>Tap to Capture</Text>
+            </View>
+
             <Button title="Take Photo" onPress={takePhoto} />
           </View>
         </CameraView>

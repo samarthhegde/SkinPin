@@ -41,3 +41,9 @@ app-example
 # generated native folders
 /ios
 /android
+
+# local ML training assets
+ml/.venv/
+ml/artifacts/
+archive/
+archive (1)/

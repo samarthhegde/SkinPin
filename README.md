@@ -2,12 +2,23 @@
 
 Privacy-first skin scan prototype built with Expo + React Native.
 
+## Status
+
+Model training is currently in progress. Frontend/mobile development can continue independently while long-running training jobs finish.
+
 ## What works right now
 
 - Camera opens in app
 - User can take a photo
-- Photo preview appears on the same device session
-- Retake flow works
+- Mini photo preview appears in the analysis screen
+- Symptom input via text
+- Voice symptom capture (speech-to-text)
+- Multi-agent local reasoning pipeline:
+  - Vision agent (prototype signal)
+  - Symptom agent (keyword + duration extraction)
+  - Triage agent (consensus urgency + next-step recommendation)
+- Sensitive Mode toggle with session clearing flow
+- Retake + full session reset flow
 
 ## Important behavior (phone vs computer)
 
@@ -20,6 +31,7 @@ This is expected because there is no backend or sync yet. Each device runs its o
 - React Native
 - Expo Router
 - `expo-camera`
+- `expo-speech-recognition`
 
 ## Project structure
 
@@ -46,6 +58,14 @@ npx expo start
 - `a` = Android emulator
 - `w` = Web
 - Scan QR in Expo Go for physical phone
+
+4. Optional: enable Gemini explanation
+
+```bash
+export EXPO_PUBLIC_GEMINI_API_KEY=your_key_here
+```
+
+If key is missing, app still works with local agent output only.
 
 ## Camera testing notes
 
@@ -78,3 +98,4 @@ npx expo start
 - No backend
 - No cloud storage
 - Privacy-first architecture
+- Training pipeline for both datasets in `ml/` (HAM10000 + Derma23)

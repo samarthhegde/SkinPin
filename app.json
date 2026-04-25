@@ -38,6 +38,13 @@
             "backgroundColor": "#000000"
           }
         }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "PrivateCare uses your microphone for optional voice symptom entry.",
+          "speechRecognitionPermission": "PrivateCare uses speech recognition to transcribe symptom descriptions."
+        }
       ]
     ],
     "experiments": {
