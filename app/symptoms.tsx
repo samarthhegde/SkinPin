@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useMemo, useRef, useState } from 'react';
 import {
     Image,
@@ -271,15 +272,22 @@ export default function SymptomsScreen() {
               }}
               activeOpacity={0.85}
             >
-              <Text style={[styles.voiceBtnText, showVoiceHint && styles.voiceBtnTextActive]}>
-                🎙  Speak instead
-              </Text>
+              <View style={styles.inlineIconTextRow}>
+                <MaterialIcons
+                  name="keyboard-voice"
+                  size={16}
+                  color={showVoiceHint ? '#FFFFFF' : PURPLE}
+                />
+                <Text style={[styles.voiceBtnText, showVoiceHint && styles.voiceBtnTextActive]}>
+                  Speak instead
+                </Text>
+              </View>
             </TouchableOpacity>
             {showVoiceHint && (
               <View style={styles.voiceHintBox}>
                 <Text style={styles.voiceHintText}>
-                  Tap the <Text style={styles.voiceHintBold}>🎤 mic key</Text> on your keyboard to speak — your words will appear above automatically.{'\n'}
-                  <Text style={styles.voiceHintPrivacy}>🔒 Audio is processed on-device by Apple. Nothing is recorded or stored.</Text>
+                  Tap the <Text style={styles.voiceHintBold}>microphone key</Text> on your keyboard to speak - your words will appear above automatically.{'\n'}
+                  <Text style={styles.voiceHintPrivacy}>Audio is processed on-device by Apple. Nothing is recorded or stored.</Text>
                 </Text>
               </View>
             )}
@@ -291,7 +299,10 @@ export default function SymptomsScreen() {
                 <View style={styles.tagsRow}>
                   {detectedTags.map((tag) => (
                     <View key={tag} style={styles.tagChip}>
-                      <Text style={styles.tagChipText}>✓ {tag}</Text>
+                      <View style={styles.inlineIconTextRow}>
+                        <MaterialIcons name="check" size={14} color={PURPLE} />
+                        <Text style={styles.tagChipText}>{tag}</Text>
+                      </View>
                     </View>
                   ))}
                 </View>
@@ -306,7 +317,10 @@ export default function SymptomsScreen() {
             onPress={handleAnalyze}
             activeOpacity={0.85}
           >
-            <Text style={styles.analyzeBtnText}>Analyze My Skin  →</Text>
+            <View style={styles.inlineIconTextRow}>
+              <Text style={styles.analyzeBtnText}>Analyze My Skin</Text>
+              <MaterialIcons name="arrow-forward" size={18} color={WHITE} />
+            </View>
           </TouchableOpacity>
 
           <Text style={styles.disclaimer}>
@@ -506,6 +520,11 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.3,
+  },
+  inlineIconTextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   disclaimer: {
     textAlign: 'center',

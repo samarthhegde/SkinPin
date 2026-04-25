@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useState } from 'react';
 import {
     FlatList,
@@ -24,10 +25,94 @@ const LANGUAGES = [
   { code: 'de', label: 'German', native: 'Deutsch' },
 ];
 
+const TRANSLATIONS = {
+  en: {
+    welcomeTo: 'Welcome to',
+    tagline: 'Your private, AI-powered\nskin health companion',
+    selectLanguage: 'Select your language',
+    getStarted: 'Get Started',
+    privacy: 'All analysis stays on your device',
+    chooseLanguage: 'Choose Language',
+  },
+  es: {
+    welcomeTo: 'Bienvenido a',
+    tagline: 'Tu compañero privado de\nsalud de la piel con IA',
+    selectLanguage: 'Selecciona tu idioma',
+    getStarted: 'Comenzar',
+    privacy: 'Todo el análisis permanece en tu dispositivo',
+    chooseLanguage: 'Elige idioma',
+  },
+  zh: {
+    welcomeTo: '欢迎使用',
+    tagline: '你的私密 AI 皮肤健康助手',
+    selectLanguage: '选择你的语言',
+    getStarted: '开始',
+    privacy: '所有分析都保留在你的设备上',
+    chooseLanguage: '选择语言',
+  },
+  hi: {
+    welcomeTo: 'में आपका स्वागत है',
+    tagline: 'आपका निजी, AI-संचालित\nत्वचा स्वास्थ्य साथी',
+    selectLanguage: 'अपनी भाषा चुनें',
+    getStarted: 'शुरू करें',
+    privacy: 'सारा विश्लेषण आपके डिवाइस पर ही रहता है',
+    chooseLanguage: 'भाषा चुनें',
+  },
+  ar: {
+    welcomeTo: 'مرحبًا بك في',
+    tagline: 'مساعدك الخاص لصحة البشرة\nبالذكاء الاصطناعي',
+    selectLanguage: 'اختر لغتك',
+    getStarted: 'ابدأ',
+    privacy: 'تبقى جميع التحليلات على جهازك',
+    chooseLanguage: 'اختر اللغة',
+  },
+  fr: {
+    welcomeTo: 'Bienvenue sur',
+    tagline: 'Votre compagnon privé de\nsanté de la peau avec IA',
+    selectLanguage: 'Choisissez votre langue',
+    getStarted: 'Commencer',
+    privacy: 'Toute l’analyse reste sur votre appareil',
+    chooseLanguage: 'Choisir la langue',
+  },
+  pt: {
+    welcomeTo: 'Bem-vindo ao',
+    tagline: 'Seu companheiro privado de\nsaúde da pele com IA',
+    selectLanguage: 'Selecione seu idioma',
+    getStarted: 'Começar',
+    privacy: 'Toda a análise permanece no seu dispositivo',
+    chooseLanguage: 'Escolher idioma',
+  },
+  ru: {
+    welcomeTo: 'Добро пожаловать в',
+    tagline: 'Ваш приватный AI-помощник\nпо здоровью кожи',
+    selectLanguage: 'Выберите язык',
+    getStarted: 'Начать',
+    privacy: 'Весь анализ остается на вашем устройстве',
+    chooseLanguage: 'Выберите язык',
+  },
+  ja: {
+    welcomeTo: 'ようこそ',
+    tagline: 'あなたのプライベートな\nAIスキンヘルスアシスタント',
+    selectLanguage: '言語を選択',
+    getStarted: '開始',
+    privacy: 'すべての解析は端末内で完結します',
+    chooseLanguage: '言語を選択',
+  },
+  de: {
+    welcomeTo: 'Willkommen bei',
+    tagline: 'Ihr privater KI-gestützter\nHautgesundheitsbegleiter',
+    selectLanguage: 'Sprache auswählen',
+    getStarted: 'Loslegen',
+    privacy: 'Alle Analysen bleiben auf Ihrem Gerät',
+    chooseLanguage: 'Sprache wählen',
+  },
+} as const;
+
 export default function WelcomeScreen() {
   const router = useRouter();
   const [selectedLanguage, setSelectedLanguage] = useState(LANGUAGES[0]);
   const [modalVisible, setModalVisible] = useState(false);
+  const t = TRANSLATIONS[selectedLanguage.code as keyof typeof TRANSLATIONS] ?? TRANSLATIONS.en;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -39,21 +124,16 @@ export default function WelcomeScreen() {
 
       {/* Main content */}
       <View style={styles.content}>
-        {/* Logo / Icon placeholder */}
         <View style={styles.logoContainer}>
-          <Text style={styles.logoIcon}>🩺</Text>
+          <MaterialIcons name="health-and-safety" size={48} color={LAVENDER_DARK} />
         </View>
 
-        {/* Title */}
-        <Text style={styles.welcomeText}>Welcome to</Text>
+        <Text style={styles.welcomeText}>{t.welcomeTo}</Text>
         <Text style={styles.appName}>SkinPin</Text>
-        <Text style={styles.tagline}>
-          Your private, AI-powered{'\n'}skin health companion
-        </Text>
+        <Text style={styles.tagline}>{t.tagline}</Text>
 
-        {/* Language selector */}
         <View style={styles.languageSection}>
-          <Text style={styles.languageLabel}>Select your language</Text>
+          <Text style={styles.languageLabel}>{t.selectLanguage}</Text>
           <TouchableOpacity
             style={styles.languageButton}
             onPress={() => setModalVisible(true)}
@@ -62,26 +142,30 @@ export default function WelcomeScreen() {
             <Text style={styles.languageButtonText}>
               {selectedLanguage.native}  ({selectedLanguage.label})
             </Text>
-            <Text style={styles.chevron}>▾</Text>
+            <MaterialIcons name="keyboard-arrow-down" size={20} color={LAVENDER_DARK} />
           </TouchableOpacity>
         </View>
 
-        {/* Get Started button */}
         <TouchableOpacity
           style={styles.getStartedButton}
           onPress={() => router.replace('/(tabs)')}
           activeOpacity={0.85}
         >
-          <Text style={styles.getStartedText}>Get Started →</Text>
+          <View style={styles.getStartedContent}>
+            <Text style={styles.getStartedText}>{t.getStarted}</Text>
+            <MaterialIcons name="arrow-forward" size={20} color="#FFFFFF" />
+          </View>
         </TouchableOpacity>
 
-        <Text style={styles.privacyNote}>🔒 All analysis stays on your device</Text>
+        <View style={styles.privacyRow}>
+          <MaterialIcons name="lock" size={14} color="#9CA3AF" />
+          <Text style={styles.privacyNote}>{t.privacy}</Text>
+        </View>
       </View>
 
       {/* Bottom decorative circle */}
       <View style={styles.circleBottomRight} />
 
-      {/* Language Picker Modal */}
       <Modal
         visible={modalVisible}
         transparent
@@ -95,7 +179,7 @@ export default function WelcomeScreen() {
         >
           <View style={styles.modalSheet}>
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Choose Language</Text>
+            <Text style={styles.modalTitle}>{t.chooseLanguage}</Text>
             <FlatList
               data={LANGUAGES}
               keyExtractor={(item) => item.code}
@@ -113,7 +197,7 @@ export default function WelcomeScreen() {
                   <Text style={styles.languageOptionNative}>{item.native}</Text>
                   <Text style={styles.languageOptionLabel}>{item.label}</Text>
                   {item.code === selectedLanguage.code && (
-                    <Text style={styles.checkmark}>✓</Text>
+                    <MaterialIcons name="check" size={18} color={LAVENDER_DARK} />
                   )}
                 </TouchableOpacity>
               )}
@@ -185,9 +269,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 6,
   },
-  logoIcon: {
-    fontSize: 48,
-  },
   welcomeText: {
     fontSize: 22,
     color: '#6B7280',
@@ -243,10 +324,6 @@ const styles = StyleSheet.create({
     color: '#374151',
     fontWeight: '500',
   },
-  chevron: {
-    fontSize: 18,
-    color: LAVENDER_DARK,
-  },
   getStartedButton: {
     width: '100%',
     backgroundColor: LAVENDER_DARK,
@@ -265,6 +342,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  getStartedContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  privacyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   privacyNote: {
     fontSize: 13,
@@ -323,10 +410,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#9CA3AF',
     marginRight: 8,
-  },
-  checkmark: {
-    fontSize: 18,
-    color: LAVENDER_DARK,
-    fontWeight: '700',
   },
 });

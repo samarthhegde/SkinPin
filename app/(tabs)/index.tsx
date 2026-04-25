@@ -39,6 +39,7 @@ function urgencyColor(urgency: 'monitor' | 'soon' | 'urgent'): string {
 }
 
 export default function HomeScreen() {
+  const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [cameraRef, setCameraRef] = useState<CameraView | null>(null);
@@ -97,13 +98,7 @@ export default function HomeScreen() {
   const takePhoto = async () => {
     if (!cameraRef) return;
     const photo = await cameraRef.takePictureAsync();
-    setPhotoUri(photo.uri);
-    setIsCheckingQuality(true);
-    const quality = await assessPhotoQuality(photo.uri);
-    setPhotoQuality(quality);
-    setIsCheckingQuality(false);
-    setAgentOutput(null);
-    setGeminiExplanation(null);
+    router.push({ pathname: '/symptoms', params: { photoUri: photo.uri } });
   };
 
   const animateFlipControl = () => {
@@ -484,7 +479,20 @@ export default function HomeScreen() {
                 }}
               />
               <View style={{ flex: 1, justifyContent: 'space-between', paddingHorizontal: 24, paddingVertical: 32 }}>
-                <View style={{ alignItems: 'flex-end', marginTop: 20 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 20 }}>
+                  <Pressable
+                    onPress={() => router.push('/welcome')}
+                    style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 999,
+                      backgroundColor: 'rgba(17, 24, 39, 0.65)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                    <MaterialIcons name="arrow-back" size={20} color="#FFFFFF" />
+                  </Pressable>
+
                   <View style={{ flexDirection: 'row', gap: 10 }}>
                     <Pressable
                       onPress={() =>

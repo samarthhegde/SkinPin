@@ -14,7 +14,10 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack>
-          <Stack.Screen name="welcome" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="welcome"
+            options={{ headerShown: false, animation: 'slide_from_left' }}
+          />
           <Stack.Screen name="symptoms" options={{ headerShown: false }} />
           <Stack.Screen name="results" options={{ headerShown: false }} />
           <Stack.Screen name="body-map" options={{ headerShown: false }} />
