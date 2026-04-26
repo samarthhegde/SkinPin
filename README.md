@@ -1,4 +1,4 @@
-# PrivateCare 
+# SkinPin
 
 Privacy-first skin scan prototype built with Expo + React Native.
 
