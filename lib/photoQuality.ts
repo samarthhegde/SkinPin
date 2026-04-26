@@ -86,8 +86,8 @@ function assessDecodedJpeg(
   if (avgLum < 65) tips.push('Too dark. Add light or avoid shadows.');
   if (avgLum > 205) tips.push('Too bright. Reduce direct light or glare.');
   if (lapVariance < 650) tips.push('Too blurry. Hold steady and refocus.');
-  if (centerDetail < borderDetail * 0.75) tips.push('Zoom in or move closer.');
-  if (centerDetail > borderDetail * 2.4) tips.push('Zoom out or move slightly back.');
+  if (centerDetail < borderDetail * 1.1) tips.push('Move closer — hold camera 4–6 inches from skin.');
+  if (centerDetail > borderDetail * 1.9) tips.push('Too close. Pull back to about 4–6 inches.');
 
   if (!tips.length) {
     tips.push('Picture looks great.');
