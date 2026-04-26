@@ -250,7 +250,8 @@ export function runTriageAgent(
   colors?: ColorFeatures | null
 ): ConsensusResult {
   const hasVisionModel = vision.label !== "model-unavailable";
-  const isNormalSkin = vision.label === "normal_skin" && vision.confidence >= 0.60;
+  // Accept normal_skin at a lower bar — it's the safe default
+  const isNormalSkin = vision.label === "normal_skin" && vision.confidence >= 0.45;
   const hasSymptomRisk =
     symptoms.severity !== "low" ||
     symptoms.concernFlags.some((flag) => !flag.startsWith("reassuring_context:")) ||
@@ -286,11 +287,11 @@ export function runTriageAgent(
   }
 
   // ── Three-tier conviction system ──────────────────────────────────────────
-  // Only flag a disease when the model is genuinely convinced.
-  // This prevents clear skin from being mislabeled as a disease at low confidence.
-  const CONVICTION  = 0.70;  // ≥70%: model is convinced — show disease + full urgency
-  const POSSIBLE    = 0.55;  // 55–70%: not conclusive — show "Possibly X" + mild urgency
-  // <55%: model is guessing — default to clear (no condition found)
+  // Default is ALWAYS clear/normal skin. Only override when the model is very confident.
+  // A normal arm can score 60-70% on a disease by chance — thresholds must be high.
+  const CONVICTION  = 0.88;  // ≥88%: model is very convinced — show disease + full urgency
+  const POSSIBLE    = 0.75;  // 75–88%: reasonable signal — show "Possibly X" + mild urgency
+  // <75%: model is not convinced — default to clear (no condition found)
 
   const isDisease = hasVisionModel && vision.label !== "normal_skin";
   const modelConvinced = isDisease && vision.confidence >= CONVICTION;
