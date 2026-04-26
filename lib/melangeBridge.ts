@@ -1,6 +1,4 @@
-import * as FileSystem from "expo-file-system";
-import { toByteArray } from "base64-js";
-import jpeg from "jpeg-js";
+import { NativeModules } from "react-native";
 
 export type VisionModelPrediction = {
   label: string;
@@ -55,29 +53,52 @@ const REDUCED16_LABELS = [
   "normal_skin",
 ];
 
-const MODEL_SIZE = 224;
+// ── Native module access ───────────────────────────────────────────────────────
 
+// Custom Swift bridge (SkinPinZeticBridge.swift) — takes photoUri directly.
+type SkinPinZeticModule = {
+  create: (personalKey: string, modelKey: string) => Promise<void>;
+  runInference: (photoUri: string) => Promise<number[][]>;
+};
+
+// Legacy npm package bridge — passes pre-processed pixel arrays.
 type ZeticModelClient = {
   create: (personalToken: string, modelKey: string) => Promise<unknown>;
   run: (inputs: unknown[]) => Promise<unknown>;
 };
 
-let zeticModel: ZeticModelClient | null = null;
-let zeticInitialized = false;
-
-function getZeticModelClient(): ZeticModelClient | null {
-  if (zeticModel) return zeticModel;
+function getCustomBridge(): SkinPinZeticModule | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pkg = require("react-native-zetic-mlange");
-    const model = pkg?.ZeticModel as ZeticModelClient | undefined;
-    if (!model) return null;
-    zeticModel = model;
-    return model;
+    const mod = NativeModules.SkinPinZetic as SkinPinZeticModule | undefined;
+    return mod ?? null;
   } catch {
     return null;
   }
 }
+
+function getLegacyZeticModel(): ZeticModelClient | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pkg = require("react-native-zetic-mlange");
+    return (pkg?.ZeticModel as ZeticModelClient | undefined) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+
+let customBridgeInitialized = false;
+let legacyBridgeInitialized = false;
+
+const PERSONAL_TOKEN = process.env.EXPO_PUBLIC_ZETIC_PERSONAL_TOKEN ?? "";
+const MODEL_KEYS_TO_TRY = [
+  "rashwak674/skinpin",
+  "dev_3f9b682e5b1c4e31ae4431bde6b89b18",
+  process.env.EXPO_PUBLIC_ZETIC_MODEL_KEY ?? "skinpin",
+];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function labelsForOutputSize(size: number): string[] {
   if (size === REDUCED16_LABELS.length) return REDUCED16_LABELS;
@@ -88,21 +109,16 @@ function argmax(scores: number[]): number {
   let bestIdx = 0;
   let best = Number.NEGATIVE_INFINITY;
   for (let i = 0; i < scores.length; i += 1) {
-    if (scores[i] > best) {
-      best = scores[i];
-      bestIdx = i;
-    }
+    if (scores[i] > best) { best = scores[i]; bestIdx = i; }
   }
   return bestIdx;
 }
 
 function topK(scores: number[], k: number): { index: number; confidence: number }[] {
-  const pairs: { index: number; confidence: number }[] = [];
-  for (let i = 0; i < scores.length; i += 1) {
-    pairs.push({ index: i, confidence: scores[i] });
-  }
-  pairs.sort((a, b) => b.confidence - a.confidence);
-  return pairs.slice(0, Math.max(1, k));
+  return scores
+    .map((c, i) => ({ index: i, confidence: c }))
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, Math.max(1, k));
 }
 
 function softmax(logits: number[]): number[] {
@@ -119,74 +135,27 @@ function softmax(logits: number[]): number[] {
   return exps;
 }
 
-function resizeRgbaToRgb224(rgba: Uint8Array, srcWidth: number, srcHeight: number): number[] {
-  const out = new Array<number>(MODEL_SIZE * MODEL_SIZE * 3);
-  let outIndex = 0;
-  for (let y = 0; y < MODEL_SIZE; y += 1) {
-    const srcY = Math.floor((y / MODEL_SIZE) * srcHeight);
-    for (let x = 0; x < MODEL_SIZE; x += 1) {
-      const srcX = Math.floor((x / MODEL_SIZE) * srcWidth);
-      const srcIdx = (srcY * srcWidth + srcX) * 4;
-      out[outIndex++] = rgba[srcIdx];
-      out[outIndex++] = rgba[srcIdx + 1];
-      out[outIndex++] = rgba[srcIdx + 2];
-    }
-  }
-  return out;
-}
-
 function isNumberArray(value: unknown): value is number[] {
   return Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === "number");
 }
 
-function typedArrayToNumbers(value: unknown): number[] | null {
-  if (!value || typeof value !== "object") return null;
-  if (ArrayBuffer.isView(value)) {
-    const arr = value as ArrayLike<number>;
-    return Array.from({ length: arr.length }, (_, i) => Number(arr[i]));
-  }
-  if (value instanceof ArrayBuffer) {
-    return Array.from(new Float32Array(value));
-  }
-  return null;
-}
-
 function collectNumberArrays(value: unknown, out: number[][]): void {
   if (!value) return;
-  if (isNumberArray(value)) {
-    out.push(value);
+  if (isNumberArray(value)) { out.push(value); return; }
+  if (value instanceof ArrayBuffer) {
+    out.push(Array.from(new Float32Array(value)));
     return;
   }
-
-  const typed = typedArrayToNumbers(value);
-  if (typed && typed.length > 0) {
-    out.push(typed);
-    return;
-  }
-
   if (Array.isArray(value)) {
-    const numericStrings = value
-      .map((v) => (typeof v === "string" ? Number(v) : Number.NaN))
-      .filter((n) => Number.isFinite(n));
-    if (numericStrings.length === value.length && numericStrings.length > 0) {
-      out.push(numericStrings);
-      return;
-    }
-    for (const item of value) {
-      collectNumberArrays(item, out);
-    }
+    for (const item of value) collectNumberArrays(item, out);
     return;
   }
-
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
-    const preferredKeys = ["output", "outputs", "data", "tensor", "tensors", "result", "results"];
-    for (const key of preferredKeys) {
+    for (const key of ["output", "outputs", "data", "tensor", "tensors", "result", "results"]) {
       if (key in record) collectNumberArrays(record[key], out);
     }
-    for (const nestedValue of Object.values(record)) {
-      collectNumberArrays(nestedValue, out);
-    }
+    for (const nestedValue of Object.values(record)) collectNumberArrays(nestedValue, out);
   }
 }
 
@@ -194,70 +163,133 @@ function extractScores(raw: unknown): number[] | null {
   const candidates: number[][] = [];
   collectNumberArrays(raw, candidates);
   if (!candidates.length) return null;
-
-  // Pick the most classification-like vector: prefer wider vectors (>5 classes).
   candidates.sort((a, b) => b.length - a.length);
   const wide = candidates.find((arr) => arr.length > 5);
   return wide ?? candidates[0];
 }
 
+function scoresToPrediction(rawScores: number[]): VisionModelPrediction | null {
+  if (!rawScores.length) return null;
+  const scores = softmax(rawScores);
+  const labels = labelsForOutputSize(scores.length);
+  const bestIdx = argmax(scores);
+  const label = labels[bestIdx] ?? `class_${bestIdx}`;
+  const confidence = scores[bestIdx] ?? 0;
+  const topPredictions = topK(scores, 3).map((e) => ({
+    label: labels[e.index] ?? `class_${e.index}`,
+    confidence: e.confidence,
+  }));
+  const margin = topPredictions.length > 1
+    ? topPredictions[0].confidence - topPredictions[1].confidence
+    : topPredictions[0].confidence;
+  return { label, confidence, margin, topK: topPredictions, source: "melange" };
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
 export async function initializeMelangeBridge(): Promise<boolean> {
-  if (zeticInitialized) return true;
-
-  const model = getZeticModelClient();
-  if (!model) return false;
-
-  const token = process.env.EXPO_PUBLIC_ZETIC_PERSONAL_TOKEN;
-  const modelKey = process.env.EXPO_PUBLIC_ZETIC_MODEL_KEY;
-  if (!token || !modelKey) return false;
-
-  try {
-    await model.create(token, modelKey);
-    zeticInitialized = true;
-    return true;
-  } catch {
+  if (customBridgeInitialized || legacyBridgeInitialized) return true;
+  if (!PERSONAL_TOKEN) {
+    console.warn("[Melange] Missing EXPO_PUBLIC_ZETIC_PERSONAL_TOKEN");
     return false;
   }
+
+  // 1. Try custom Swift bridge (SkinPinZeticBridge) — preferred, uses latest ZeticMLange framework.
+  const customBridge = getCustomBridge();
+  if (customBridge) {
+    for (const key of MODEL_KEYS_TO_TRY) {
+      try {
+        console.log("[Melange] Custom bridge — trying key:", key);
+        await customBridge.create(PERSONAL_TOKEN, key);
+        customBridgeInitialized = true;
+        console.log("[Melange] Custom bridge initialized with key:", key);
+        return true;
+      } catch (e) {
+        console.warn("[Melange] Custom bridge failed for key:", key, e);
+      }
+    }
+  } else {
+    console.warn("[Melange] SkinPinZetic native module not found — needs rebuild");
+  }
+
+  // 2. Fall back to legacy react-native-zetic-mlange npm package.
+  const legacyModel = getLegacyZeticModel();
+  if (legacyModel) {
+    for (const key of MODEL_KEYS_TO_TRY) {
+      try {
+        console.log("[Melange] Legacy bridge — trying key:", key);
+        await legacyModel.create(PERSONAL_TOKEN, key);
+        legacyBridgeInitialized = true;
+        console.log("[Melange] Legacy bridge initialized with key:", key);
+        return true;
+      } catch (e) {
+        console.warn("[Melange] Legacy bridge failed for key:", key, e);
+      }
+    }
+  }
+
+  console.error("[Melange] All initialization attempts failed.");
+  return false;
 }
+
+// ── Inference ─────────────────────────────────────────────────────────────────
 
 export async function analyzeSkinPhotoWithMelange(
   photoUri: string
 ): Promise<VisionModelPrediction | null> {
-  if (!zeticInitialized) return null;
-  const model = getZeticModelClient();
-  if (!model) return null;
-
-  try {
-    const base64 = await FileSystem.readAsStringAsync(photoUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    const jpgBytes = toByteArray(base64);
-    const decoded = jpeg.decode(jpgBytes, { useTArray: true });
-    if (!decoded?.data || !decoded.width || !decoded.height) return null;
-
-    const inputData = resizeRgbaToRgb224(decoded.data, decoded.width, decoded.height);
-    const rawOutput = await model.run([inputData]);
-    console.log("[Melange] raw output type:", typeof rawOutput, Array.isArray(rawOutput));
-    const rawScores = extractScores(rawOutput);
-    if (!rawScores || rawScores.length === 0) return null;
-
-    const scores = softmax(rawScores);
-    const labels = labelsForOutputSize(scores.length);
-    const bestIdx = argmax(scores);
-    const label = labels[bestIdx] ?? `class_${bestIdx}`;
-    const confidence = scores[bestIdx] ?? 0;
-
-    const topPredictions = topK(scores, 3).map((entry) => ({
-      label: labels[entry.index] ?? `class_${entry.index}`,
-      confidence: entry.confidence,
-    }));
-    const margin =
-      topPredictions.length > 1
-        ? topPredictions[0].confidence - topPredictions[1].confidence
-        : topPredictions[0].confidence;
-
-    return { label, confidence, margin, topK: topPredictions, source: "melange" };
-  } catch {
-    return null;
+  // Path 1: custom Swift bridge — handles everything natively.
+  if (customBridgeInitialized) {
+    const customBridge = getCustomBridge();
+    if (customBridge) {
+      try {
+        const rawOutput = await customBridge.runInference(photoUri);
+        console.log("[Melange] Custom bridge raw output shape:", rawOutput?.length, rawOutput?.[0]?.length);
+        const rawScores = extractScores(rawOutput);
+        if (rawScores && rawScores.length > 0) return scoresToPrediction(rawScores);
+      } catch (e) {
+        console.warn("[Melange] Custom bridge inference failed:", e);
+      }
+    }
   }
+
+  // Path 2: legacy npm package bridge — JS-side image preprocessing.
+  if (legacyBridgeInitialized) {
+    const legacyModel = getLegacyZeticModel();
+    if (legacyModel) {
+      try {
+        // Lazy-load heavy image libs only when needed.
+        const FileSystem = await import("expo-file-system");
+        const { toByteArray } = await import("base64-js");
+        const jpeg = await import("jpeg-js");
+
+        const base64 = await FileSystem.readAsStringAsync(photoUri, { encoding: "base64" as any });
+        const jpgBytes = toByteArray(base64);
+        const decoded = (jpeg as any).decode(jpgBytes, { useTArray: true });
+        if (!decoded?.data || !decoded.width || !decoded.height) return null;
+
+        const MODEL_SIZE = 224;
+        const out = new Array<number>(MODEL_SIZE * MODEL_SIZE * 3);
+        let idx = 0;
+        for (let y = 0; y < MODEL_SIZE; y++) {
+          const srcY = Math.floor((y / MODEL_SIZE) * decoded.height);
+          for (let x = 0; x < MODEL_SIZE; x++) {
+            const srcX = Math.floor((x / MODEL_SIZE) * decoded.width);
+            const srcIdx = (srcY * decoded.width + srcX) * 4;
+            out[idx++] = decoded.data[srcIdx];
+            out[idx++] = decoded.data[srcIdx + 1];
+            out[idx++] = decoded.data[srcIdx + 2];
+          }
+        }
+
+        const rawOutput = await legacyModel.run([out]);
+        console.log("[Melange] Legacy raw output type:", typeof rawOutput, Array.isArray(rawOutput));
+        const rawScores = extractScores(rawOutput);
+        if (rawScores && rawScores.length > 0) return scoresToPrediction(rawScores);
+      } catch (e) {
+        console.warn("[Melange] Legacy bridge inference failed:", e);
+      }
+    }
+  }
+
+  return null;
 }

@@ -1,5 +1,6 @@
 import { LocalAgentOutput, runLocalAgentPipelineAsync } from '@/lib/agents';
 import { urgencyToSeverity } from '@/lib/bodyMap';
+import { analyzeSkinPhotoWithMelange, initializeMelangeBridge } from '@/lib/melangeBridge';
 import { analyzeSkinPhotoWithTflite, initializeTfliteBridge } from '@/lib/tfliteBridge';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -85,25 +86,57 @@ export default function ResultsScreen() {
 
   const [output, setOutput] = useState<LocalAgentOutput | null>(null);
   const [loading, setLoading] = useState(true);
-  const [modelStatus, setModelStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
+  const [inferenceBackend, setInferenceBackend] = useState<'melange' | 'tflite' | 'symptoms-only'>('symptoms-only');
 
   useEffect(() => {
     const run = async () => {
       setLoading(true);
 
-      // 1. Try to load the TFLite model and run it on the photo
       let modelPrediction = null;
+
       if (photoUri) {
-        const modelLoaded = await initializeTfliteBridge();
-        setModelStatus(modelLoaded ? 'ready' : 'unavailable');
-        if (modelLoaded) {
-          modelPrediction = await analyzeSkinPhotoWithTflite(photoUri);
+        // 1. Try Melange (ZETIC) first — primary backend for ZETIC challenge.
+        try {
+          const melangeReady = await initializeMelangeBridge();
+          if (melangeReady) {
+            modelPrediction = await analyzeSkinPhotoWithMelange(photoUri);
+            if (modelPrediction) {
+              setInferenceBackend('melange');
+              console.log('[Results] Using Melange backend:', modelPrediction.label, modelPrediction.confidence);
+            }
+          }
+        } catch (e) {
+          console.warn('[Results] Melange attempt failed:', e);
         }
-      } else {
-        setModelStatus('unavailable');
+
+        // 2. Fallback to TFLite if Melange gave nothing — guarantees a real decision.
+        if (!modelPrediction) {
+          console.log('[Results] Melange unavailable, falling back to TFLite…');
+          try {
+            const tfliteReady = await initializeTfliteBridge();
+            console.log('[Results] TFLite init result:', tfliteReady);
+            if (tfliteReady) {
+              modelPrediction = await analyzeSkinPhotoWithTflite(photoUri);
+              console.log('[Results] TFLite prediction:', modelPrediction ? modelPrediction.label : 'null');
+              if (modelPrediction) {
+                setInferenceBackend('tflite');
+                console.log('[Results] Using TFLite backend:', modelPrediction.label, modelPrediction.confidence);
+              }
+            } else {
+              console.error('[Results] TFLite init returned false — models failed to load');
+            }
+          } catch (e) {
+            console.error('[Results] TFLite fallback threw exception:', e);
+          }
+        }
       }
 
-      // 2. Pass both the photo prediction AND symptoms into the pipeline
+      if (!modelPrediction) {
+        setInferenceBackend('symptoms-only');
+        console.log('[Results] No vision model result — running on symptoms only.');
+      }
+
+      // 3. Pass both the photo prediction AND symptoms into the agent pipeline
       const result = await runLocalAgentPipelineAsync(symptoms ?? '', modelPrediction);
       setOutput(result);
       setLoading(false);
@@ -133,17 +166,20 @@ export default function ResultsScreen() {
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={PURPLE} />
-          <Text style={styles.loadingText}>
-            {modelStatus === 'loading' ? 'Running skin analysis model…' : 'Combining results…'}
-          </Text>
+          <Text style={styles.loadingText}>Running skin analysis model…</Text>
           <Text style={styles.loadingSubtext}>
-            {modelStatus === 'loading'
-              ? 'Comparing your photo against 23 trained skin conditions'
-              : 'Running multi-agent analysis privately on device'}
+            Analyzing your photo against trained skin conditions — all on device
           </Text>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent}>
+          {inferenceBackend === 'symptoms-only' ? (
+            <View style={styles.warnBanner}>
+              <Text style={styles.warnBannerText}>
+                Vision model unavailable — results based on symptoms only.
+              </Text>
+            </View>
+          ) : null}
 
           {/* Photo + condition summary */}
           <View style={styles.card}>
@@ -184,6 +220,9 @@ export default function ResultsScreen() {
             </View>
             <Text style={[styles.urgencyDetail, { color: urgencyCfg.text }]}>
               {output?.consensus.whenToSeeDoctor}
+            </Text>
+            <Text style={[styles.urgencyDetail, { color: urgencyCfg.text }]}>
+              AI engine: {inferenceBackend === 'melange' ? 'ZETIC Melange ✓' : inferenceBackend === 'tflite' ? 'TFLite (local)' : 'Symptoms only'}
             </Text>
           </View>
 
@@ -510,4 +549,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   savedBannerText: { color: '#166534', fontWeight: '700' },
+  warnBanner: {
+    backgroundColor: '#FEF9C3',
+    borderColor: '#FDE68A',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+  },
+  warnBannerText: { color: '#92400E', fontSize: 13 },
 });

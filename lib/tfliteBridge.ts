@@ -73,7 +73,9 @@ let gateModel: TfliteModel | null = null;          // 16-class v2 model (has nor
 let bridgeInitAttempted = false;
 let hasFastTflite = true;
 
-const NORMAL_SKIN_THRESHOLD = 0.70; // if v2 says normal_skin >= 70%, skip disease model
+const NORMAL_SKIN_THRESHOLD = 0.90; // be conservative: avoid false "normal_skin" clears
+const NORMAL_SKIN_MARGIN_THRESHOLD = 0.25;
+const DISEASE_LOW_CONFIDENCE_THRESHOLD = 0.45;
 
 function argmax(scores: Float32Array): number {
   let bestIdx = 0;
@@ -158,29 +160,53 @@ function resizeRgbaToRgb224(
 }
 
 export async function initializeTfliteBridge(): Promise<boolean> {
-  if (bridgeInitAttempted) return tfliteModel !== null || gateModel !== null;
+  if (bridgeInitAttempted) {
+    console.log("[TFLite] Already attempted — tfliteModel:", !!tfliteModel, "gateModel:", !!gateModel);
+    return tfliteModel !== null || gateModel !== null;
+  }
   bridgeInitAttempted = true;
+  console.log("[TFLite] Starting initialization…");
 
+  let tflitePkg: any = null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const tflitePkg = require("react-native-fast-tflite");
-    const loadModel = tflitePkg?.loadTensorflowModel as
-      | ((source: number | { url: string }, delegates: string[]) => Promise<TfliteModel>)
-      | undefined;
+    tflitePkg = require("react-native-fast-tflite");
+    console.log("[TFLite] Package loaded, keys:", Object.keys(tflitePkg ?? {}));
+  } catch (e) {
+    console.error("[TFLite] require() failed — native module not linked:", e);
+    hasFastTflite = false;
+    return false;
+  }
 
-    if (!loadModel) return false;
+  const loadModel = tflitePkg?.loadTensorflowModel as
+    | ((source: number | { url: string }, delegates: string[]) => Promise<TfliteModel>)
+    | undefined;
 
-    // Load both models in parallel
+  if (!loadModel) {
+    console.error("[TFLite] loadTensorflowModel not found in package");
+    return false;
+  }
+
+  try {
+    console.log("[TFLite] Loading derma23.tflite and condition_v2.tflite…");
     const [m23, mv2] = await Promise.all([
-      loadModel(require("../assets/models/derma23.tflite"), []).catch(() => null),
-      loadModel(require("../assets/models/condition_v2.tflite"), []).catch(() => null),
+      loadModel(require("../assets/models/derma23.tflite"), []).catch((e: unknown) => {
+        console.error("[TFLite] derma23.tflite load failed:", e);
+        return null;
+      }),
+      loadModel(require("../assets/models/condition_v2.tflite"), []).catch((e: unknown) => {
+        console.error("[TFLite] condition_v2.tflite load failed:", e);
+        return null;
+      }),
     ]);
 
-    tfliteModel = m23;  // 23-class disease model
-    gateModel = mv2;    // 16-class gate model (has normal_skin)
+    tfliteModel = m23;
+    gateModel = mv2;
 
+    console.log("[TFLite] Init complete — disease model:", !!tfliteModel, "gate model:", !!gateModel);
     return tfliteModel !== null || gateModel !== null;
-  } catch {
+  } catch (e) {
+    console.error("[TFLite] Unexpected error during model load:", e);
     hasFastTflite = false;
     tfliteModel = null;
     gateModel = null;
@@ -226,30 +252,40 @@ export async function analyzeSkinPhotoWithTflite(photoUri: string): Promise<Visi
     if (!decoded?.data || !decoded.width || !decoded.height) return null;
 
     // ── STAGE 1: Gate model (16-class, has normal_skin) ──────────────────
+    let gateNormalConf = 0;
+    let gateNormalMargin = 0;
+    let gateTopPredictions: { label: string; confidence: number }[] = [];
     if (gateModel) {
       const gateScores = runModelOnDecoded(gateModel, decoded.data, decoded.width, decoded.height);
       if (gateScores) {
         const normalIdx = REDUCED16_LABELS.indexOf("normal_skin");
-        const normalConf = normalIdx >= 0 ? (gateScores[normalIdx] ?? 0) : 0;
-
-        // If gate is confident this is normal skin, stop here — no disease
-        if (normalConf >= NORMAL_SKIN_THRESHOLD) {
-          return {
-            label: "normal_skin",
-            confidence: normalConf,
-            margin: normalConf - (topK(gateScores, 2)[1]?.confidence ?? 0),
-            topK: topK(gateScores, 3).map((e) => ({
-              label: REDUCED16_LABELS[e.index] ?? `class_${e.index}`,
-              confidence: e.confidence,
-            })),
-            source: "tflite",
-          };
-        }
+        gateNormalConf = normalIdx >= 0 ? (gateScores[normalIdx] ?? 0) : 0;
+        gateTopPredictions = topK(gateScores, 3).map((e) => ({
+          label: REDUCED16_LABELS[e.index] ?? `class_${e.index}`,
+          confidence: e.confidence,
+        }));
+        gateNormalMargin =
+          gateTopPredictions.length > 1
+            ? gateTopPredictions[0].confidence - gateTopPredictions[1].confidence
+            : gateTopPredictions[0]?.confidence ?? 0;
       }
     }
 
     // ── STAGE 2: Disease model (23-class, specific conditions) ───────────
-    if (!tfliteModel) return null;
+    // If only the gate model is available, use its 16-class prediction directly.
+    if (!tfliteModel) {
+      if (gateTopPredictions.length > 0) {
+        const top = gateTopPredictions[0];
+        return {
+          label: top.label,
+          confidence: top.confidence,
+          margin: gateNormalMargin,
+          topK: gateTopPredictions,
+          source: "tflite",
+        };
+      }
+      return null;
+    }
     const scores = runModelOnDecoded(tfliteModel, decoded.data, decoded.width, decoded.height);
     if (!scores) return null;
 
@@ -266,6 +302,21 @@ export async function analyzeSkinPhotoWithTflite(photoUri: string): Promise<Visi
         ? topPredictions[0].confidence - topPredictions[1].confidence
         : topPredictions[0].confidence;
 
+
+    // Only return "normal_skin" when gate is very confident AND disease model is not confident.
+    if (
+      gateNormalConf >= NORMAL_SKIN_THRESHOLD &&
+      gateNormalMargin >= NORMAL_SKIN_MARGIN_THRESHOLD &&
+      confidence < DISEASE_LOW_CONFIDENCE_THRESHOLD
+    ) {
+      return {
+        label: "normal_skin",
+        confidence: gateNormalConf,
+        margin: gateNormalMargin,
+        topK: gateTopPredictions,
+        source: "tflite",
+      };
+    }
 
     return { label, confidence, margin, topK: topPredictions, source: "tflite" };
   } catch {

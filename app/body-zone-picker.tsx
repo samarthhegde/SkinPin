@@ -90,7 +90,7 @@ export default function BodyZonePickerScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#F3F4F6", padding: 16 },
+  safeArea: { flex: 1, backgroundColor: "#F3F4F6", padding: 16, alignItems: "stretch" },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   headerBack: { color: "#1F2937", fontWeight: "700" },
   headerTitle: { fontSize: 18, fontWeight: "800", color: "#111827" },
@@ -99,9 +99,9 @@ const styles = StyleSheet.create({
   toggleBtnActive: { backgroundColor: "#7C3AED", borderColor: "#7C3AED" },
   toggleText: { color: "#374151", fontWeight: "700" },
   toggleTextActive: { color: "#FFFFFF" },
-  diagramWrap: { alignItems: "center", marginBottom: 12 },
-  metaCard: { backgroundColor: "#FFFFFF", borderRadius: 12, padding: 12, gap: 4, marginBottom: 12 },
-  metaLabel: { color: "#374151", fontSize: 13 },
+  diagramWrap: { flex: 1, alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  metaCard: { backgroundColor: "#FFFFFF", borderRadius: 12, padding: 12, gap: 4, marginBottom: 12, alignItems: "center" },
+  metaLabel: { color: "#374151", fontSize: 13, textAlign: "center" },
   saveBtn: { backgroundColor: "#111827", borderRadius: 12, paddingVertical: 14, alignItems: "center" },
   saveBtnText: { color: "#FFFFFF", fontWeight: "800" },
 });

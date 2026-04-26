@@ -214,9 +214,13 @@ export function runTriageAgent(
 ): ConsensusResult {
   const hasVisionModel = vision.label !== "model-unavailable" && vision.label !== "uncertain-visual";
   const isNormalSkin = vision.label === "normal_skin" && vision.confidence >= 0.70;
+  const hasSymptomRisk =
+    symptoms.severity !== "low" ||
+    symptoms.concernFlags.some((flag) => !flag.startsWith("reassuring_context:")) ||
+    (symptoms.durationDays !== null && symptoms.durationDays >= 3);
 
     // If gate model is confident this is normal skin, short-circuit to all-clear
-    if (isNormalSkin) {
+    if (isNormalSkin && !hasSymptomRisk) {
       return {
         condition: "No skin condition found",
         confidence: vision.confidence,
@@ -224,7 +228,9 @@ export function runTriageAgent(
         whenToSeeDoctor: "No issues detected. Keep an eye on the area and see a doctor if anything changes.",
         explanation: "The on-device model compared your photo against 16 skin categories and is confident the skin appears normal.",
       };
-    }  const combinedSeverity = levelFromRank(
+    }
+
+  const combinedSeverity = levelFromRank(
     Math.max(severityRank(vision.severity), severityRank(symptoms.severity))
   );
 
@@ -258,7 +264,7 @@ export function runTriageAgent(
           ? "Possible infection or severe inflammation"
           : combinedSeverity === "medium"
             ? "Possible dermatitis or progressing inflammatory condition"
-            : "No skin condition found";
+            : "No confident visual condition detected";
 
   return {
     condition,
