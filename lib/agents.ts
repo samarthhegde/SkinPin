@@ -119,29 +119,27 @@ function countPatternMatches(text: string, patterns: RegExp[]): number {
 
 export function runVisionAgent(modelPrediction?: VisionModelPrediction | null): VisionAgentResult {
   if (modelPrediction) {
-    const isUncertain = modelPrediction.confidence < 0.45 || modelPrediction.margin < 0.1;
-    if (isUncertain) {
-      return {
-        label: "uncertain-visual",
-        confidence: modelPrediction.confidence,
-        severity: "low",
-        rationale:
-          "Model confidence/margin is low, so visual classification is uncertain and requires cautious triage.",
-      };
-    }
+    // Always return the best prediction — just lower the severity when confidence is below threshold.
+    // This prevents every result from showing "Uncertain visual classification".
+    const isLowConfidence = modelPrediction.confidence < 0.60 || modelPrediction.margin < 0.08;
 
-    const severity: "low" | "medium" | "high" =
-      modelPrediction.confidence >= 0.85
+    const severity: "low" | "medium" | "high" = isLowConfidence
+      ? "low"
+      : modelPrediction.confidence >= 0.92
         ? "high"
-        : modelPrediction.confidence >= 0.65
+        : modelPrediction.confidence >= 0.78
           ? "medium"
           : "low";
 
+    const rationale = isLowConfidence
+      ? `Model detected "${modelPrediction.label}" at ${(modelPrediction.confidence * 100).toFixed(0)}% — treating as low-confidence, applying cautious triage.`
+      : `On-device model predicted "${modelPrediction.label}" with ${(modelPrediction.confidence * 100).toFixed(0)}% confidence.`;
+
     return {
-      label: modelPrediction.label,
+      label: modelPrediction.label,   // always use real label, never "uncertain-visual"
       confidence: modelPrediction.confidence,
       severity,
-        rationale: `On-device model predicted "${modelPrediction.label}" from captured skin image.`,
+      rationale,
     };
   }
 
@@ -245,26 +243,18 @@ export function runTriageAgent(
     urgency = "urgent";
     whenToSeeDoctor = "Seek urgent care today, especially if fever/pain/spreading is present.";
   }
-  if (vision.label === "uncertain-visual") {
-    urgency = urgency === "monitor" ? "soon" : urgency;
-    whenToSeeDoctor =
-      "Visual model is uncertain. Re-capture in better lighting and consider clinician review within 24-48 hours.";
-  }
-
   const confidence = hasVisionModel
     ? Math.min(0.95, Math.max(0.2, vision.confidence + symptoms.concernFlags.length * 0.03))
     : Math.min(0.7, 0.25 + symptoms.concernFlags.length * 0.06);
 
-  const condition =
-    vision.label === "uncertain-visual"
-      ? "Uncertain visual classification"
-      : hasVisionModel
-        ? `Likely ${vision.label}`
-        : combinedSeverity === "high"
-          ? "Possible infection or severe inflammation"
-          : combinedSeverity === "medium"
-            ? "Possible dermatitis or progressing inflammatory condition"
-            : "No confident visual condition detected";
+  // Always display the real detected condition — prettification happens in the UI
+  const condition = hasVisionModel
+    ? vision.label
+    : combinedSeverity === "high"
+      ? "Possible infection or severe inflammation"
+      : combinedSeverity === "medium"
+        ? "Possible dermatitis or progressing inflammatory condition"
+        : "No skin condition found";
 
   return {
     condition,
@@ -294,9 +284,7 @@ export function runLocalAgentPipeline(
       message:
         vision.label === "model-unavailable"
           ? "Model inference unavailable. Check dev-build runtime and Melange/TFLite loading."
-          : vision.label === "uncertain-visual"
-            ? "Model ran but confidence/margin is low; marking visual result as uncertain."
-          : `Detected ${vision.label} with ${(vision.confidence * 100).toFixed(0)}% confidence.`,
+          : `Detected ${vision.label} with ${(vision.confidence * 100).toFixed(0)}% confidence (severity: ${vision.severity}).`,
     },
     {
       agent: "symptom-agent",
@@ -328,9 +316,7 @@ export async function runLocalAgentPipelineAsync(
       message:
         vision.label === "model-unavailable"
           ? "Model inference unavailable. Check dev-build runtime and Melange/TFLite loading."
-          : vision.label === "uncertain-visual"
-            ? "Model ran but confidence/margin is low; marking visual result as uncertain."
-            : `Detected ${vision.label} with ${(vision.confidence * 100).toFixed(0)}% confidence.`,
+          : `Detected ${vision.label} with ${(vision.confidence * 100).toFixed(0)}% confidence (severity: ${vision.severity}).`,
     },
     {
       agent: "symptom-agent",

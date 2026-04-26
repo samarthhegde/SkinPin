@@ -25,11 +25,60 @@ const GRAY_TEXT   = '#374151';
 const WHITE       = '#FFFFFF';
 
 const URGENCY_CONFIG = {
-  clear:   { bg: '#F0FDF4', text: '#166534', badge: '#22C55E', label: '✓ No skin condition found' },
-  monitor: { bg: '#DCFCE7', text: '#166534', badge: '#4ADE80', label: 'Mild — keep an eye on it' },
-  soon:    { bg: '#FEF3C7', text: '#B45309', badge: '#F59E0B', label: 'Moderate — see a doctor within 1–3 days' },
-  urgent:  { bg: '#FEE2E2', text: '#B91C1C', badge: '#EF4444', label: 'Severe — seek care today' },
+  clear:   { bg: '#F0FDF4', text: '#166534', badge: '#22C55E',  label: '✓ Good — Skin appears healthy' },
+  monitor: { bg: '#ECFDF5', text: '#065F46', badge: '#34D399',  label: '○ Mild — Keep an eye on it' },
+  soon:    { bg: '#FEF3C7', text: '#92400E', badge: '#F59E0B',  label: '⚠ Moderate — See a doctor within 1–3 days' },
+  urgent:  { bg: '#FEE2E2', text: '#B91C1C', badge: '#EF4444',  label: '✕ Dangerous — Seek care today' },
+  // "extreme" maps to urgent in the agent but we handle it visually here
+} as const;
+
+// Human-readable names for model output labels
+const CONDITION_PRETTY: Record<string, string> = {
+  inflammatory:               'Inflammatory Skin Condition',
+  malignant_or_precancerous:  'Possibly Malignant / Pre-cancerous',
+  eczema_dermatitis:          'Eczema / Dermatitis',
+  autoimmune_bullous:         'Autoimmune Blistering Disorder',
+  infectious_bacterial:       'Bacterial Skin Infection',
+  hair_nail_disorder:         'Hair or Nail Disorder',
+  infectious_viral_std:       'Viral Skin Infection',
+  pigment_light_disorder:     'Pigmentation Disorder',
+  autoimmune_connective:      'Autoimmune / Connective Tissue Disorder',
+  papulosquamous:             'Psoriasis / Lichen-type Condition',
+  infestation_bite:           'Insect Bite or Infestation',
+  benign_tumor:               'Benign Skin Growth',
+  systemic_manifestation:     'Skin Sign of Systemic Condition',
+  infectious_fungal:          'Fungal Skin Infection',
+  vascular:                   'Vascular Skin Condition',
+  normal_skin:                'No Skin Condition Found',
+  // 23-class labels
+  'Acne and Rosacea Photos':                                        'Acne / Rosacea',
+  'Actinic Keratosis Basal Cell Carcinoma and other Malignant Lesions': 'Actinic Keratosis / Skin Cancer',
+  'Atopic Dermatitis Photos':                                       'Atopic Dermatitis',
+  'Bullous Disease Photos':                                         'Blistering Skin Disease',
+  'Cellulitis Impetigo and other Bacterial Infections':             'Cellulitis / Impetigo',
+  'Eczema Photos':                                                  'Eczema',
+  'Exanthems and Drug Eruptions':                                   'Drug Rash / Skin Eruption',
+  'Hair Loss Photos Alopecia and other Hair Diseases':              'Hair Loss / Alopecia',
+  'Herpes HPV and other STDs Photos':                               'Herpes / HPV Lesion',
+  'Light Diseases and Disorders of Pigmentation':                   'Pigmentation Disorder',
+  'Lupus and other Connective Tissue diseases':                     'Lupus / Connective Tissue',
+  'Melanoma Skin Cancer Nevi and Moles':                            'Melanoma / Moles',
+  'Nail Fungus and other Nail Disease':                             'Nail Fungus',
+  'Poison Ivy Photos and other Contact Dermatitis':                 'Contact Dermatitis',
+  'Psoriasis pictures Lichen Planus and related diseases':          'Psoriasis / Lichen Planus',
+  'Scabies Lyme Disease and other Infestations and Bites':          'Scabies / Insect Bite',
+  'Seborrheic Keratoses and other Benign Tumors':                   'Seborrheic Keratosis',
+  'Systemic Disease':                                               'Systemic Skin Condition',
+  'Tinea Ringworm Candidiasis and other Fungal Infections':         'Ringworm / Fungal Infection',
+  'Urticaria Hives':                                                'Hives / Urticaria',
+  'Vascular Tumors':                                                'Vascular Growth',
+  'Vasculitis Photos':                                              'Vasculitis',
+  'Warts Molluscum and other Viral Infections':                     'Warts / Viral Infection',
 };
+
+function prettyCondition(raw: string): string {
+  return CONDITION_PRETTY[raw] ?? raw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 // Parse local explanation points into a clean array
 function parseBullets(text: string): string[] {
@@ -144,10 +193,13 @@ export default function ResultsScreen() {
     run();
   }, [photoUri, symptoms]);
 
-  const urgency = (output?.consensus.urgency ?? 'monitor') as keyof typeof URGENCY_CONFIG;
+  const rawUrgency = output?.consensus.urgency ?? 'monitor';
+  const urgency = (rawUrgency in URGENCY_CONFIG ? rawUrgency : 'monitor') as keyof typeof URGENCY_CONFIG;
   const urgencyCfg = URGENCY_CONFIG[urgency];
   const confidence = output ? Math.round(output.consensus.confidence * 100) : 0;
-  const nextSteps = output ? getNextSteps(urgency, output.consensus.condition) : [];
+  const rawCondition = output?.consensus.condition ?? '—';
+  const displayCondition = prettyCondition(rawCondition);
+  const nextSteps = output ? getNextSteps(urgency, rawCondition) : [];
   const bullets = output ? parseBullets(output.consensus.explanation) : [];
 
   return (
@@ -193,7 +245,7 @@ export default function ResultsScreen() {
               )}
               <View style={styles.summaryText}>
                 <Text style={styles.sectionLabel}>SKIN CONDITION</Text>
-                <Text style={styles.conditionName}>{output?.consensus.condition ?? '—'}</Text>
+                <Text style={styles.conditionName}>{displayCondition}</Text>
               </View>
             </View>
 
@@ -204,8 +256,25 @@ export default function ResultsScreen() {
                 <Text style={styles.confidencePct}>{confidence}%</Text>
               </View>
               <View style={styles.barTrack}>
-                <View style={[styles.barFill, { width: `${confidence}%` as any }]} />
+                <View style={[styles.barFill, { width: `${confidence}%` as any, backgroundColor: urgencyCfg.badge }]} />
               </View>
+            </View>
+
+            {/* Severity pill row */}
+            <View style={styles.severityRow}>
+              {(['Good', 'Mild', 'Moderate', 'Dangerous'] as const).map((tier) => {
+                const active =
+                  (tier === 'Good'      && urgency === 'clear') ||
+                  (tier === 'Mild'      && urgency === 'monitor') ||
+                  (tier === 'Moderate'  && urgency === 'soon') ||
+                  (tier === 'Dangerous' && urgency === 'urgent');
+                const tierColor = tier === 'Good' ? '#22C55E' : tier === 'Mild' ? '#34D399' : tier === 'Moderate' ? '#F59E0B' : '#EF4444';
+                return (
+                  <View key={tier} style={[styles.severityPill, active && { backgroundColor: tierColor }]}>
+                    <Text style={[styles.severityPillText, active && { color: '#fff' }]}>{tier}</Text>
+                  </View>
+                );
+              })}
             </View>
           </View>
 
@@ -419,8 +488,26 @@ const styles = StyleSheet.create({
   },
   barFill: {
     height: 8,
-    backgroundColor: PURPLE,
     borderRadius: 99,
+  },
+
+  // Severity pill row
+  severityRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+  },
+  severityPill: {
+    flex: 1,
+    paddingVertical: 6,
+    borderRadius: 99,
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+  },
+  severityPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9CA3AF',
   },
 
   // Urgency

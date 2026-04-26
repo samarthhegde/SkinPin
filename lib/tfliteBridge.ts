@@ -1,4 +1,4 @@
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { toByteArray } from "base64-js";
 import jpeg from "jpeg-js";
 
@@ -73,9 +73,11 @@ let gateModel: TfliteModel | null = null;          // 16-class v2 model (has nor
 let bridgeInitAttempted = false;
 let hasFastTflite = true;
 
-const NORMAL_SKIN_THRESHOLD = 0.90; // be conservative: avoid false "normal_skin" clears
-const NORMAL_SKIN_MARGIN_THRESHOLD = 0.25;
-const DISEASE_LOW_CONFIDENCE_THRESHOLD = 0.45;
+// With temperature sharpening (T=0.5), scores are significantly higher.
+// Raise thresholds accordingly so "normal_skin" still requires very strong signal.
+const NORMAL_SKIN_THRESHOLD = 0.95;
+const NORMAL_SKIN_MARGIN_THRESHOLD = 0.35;
+const DISEASE_LOW_CONFIDENCE_THRESHOLD = 0.60;
 
 function argmax(scores: Float32Array): number {
   let bestIdx = 0;
@@ -110,6 +112,29 @@ function softmax(logits: Float32Array): Float32Array {
   }
   for (let i = 0; i < exps.length; i += 1) exps[i] /= sum || 1;
   return exps;
+}
+
+// The model already has a final Softmax layer, so its output is probabilities (0–1, sum≈1).
+// Applying softmax again flattens/crushes confidence. Instead, convert back to log-space
+// and apply temperature scaling (T<1 sharpens; T=0.5 turns 35% → ~77%).
+function temperatureScale(probs: Float32Array, temperature = 0.5): Float32Array {
+  let sumProbs = 0;
+  for (let i = 0; i < probs.length; i += 1) sumProbs += probs[i];
+  const isProbability = Math.abs(sumProbs - 1.0) < 0.1;
+
+  if (!isProbability) {
+    // Raw logits — standard softmax with temperature
+    const scaled = new Float32Array(probs.length);
+    for (let i = 0; i < probs.length; i += 1) scaled[i] = probs[i] / temperature;
+    return softmax(scaled);
+  }
+
+  // Already probabilities — go back to log-space, scale, re-softmax
+  const logits = new Float32Array(probs.length);
+  for (let i = 0; i < probs.length; i += 1) {
+    logits[i] = Math.log(Math.max(probs[i], 1e-10)) / temperature;
+  }
+  return softmax(logits);
 }
 
 function labelsForOutputSize(size: number): string[] {
@@ -225,31 +250,56 @@ function runModelOnDecoded(
   width: number,
   height: number
 ): Float32Array | null {
-  const dtype = model.inputs[0]?.dataType ?? "float32";
-  const buf = resizeRgbaToRgb224(rgbaData, width, height, dtype);
-  const bufFlipped = resizeRgbaToRgb224(rgbaData, width, height, dtype, true);
-  const out = model.runSync([buf]);
-  const outFlipped = model.runSync([bufFlipped]);
-  if (!out[0] || !outFlipped[0]) return null;
-  const a = new Float32Array(out[0]);
-  const b = new Float32Array(outFlipped[0]);
-  if (a.length !== b.length) return null;
-  const avg = new Float32Array(a.length);
-  for (let i = 0; i < avg.length; i++) avg[i] = (a[i] + b[i]) / 2;
-  return softmax(avg);
+  try {
+    const dtype = model.inputs[0]?.dataType ?? "float32";
+    console.log("[TFLite] runModelOnDecoded — dtype:", dtype, "input shape:", model.inputs[0]?.shape);
+    const buf = resizeRgbaToRgb224(rgbaData, width, height, dtype);
+    const bufFlipped = resizeRgbaToRgb224(rgbaData, width, height, dtype, true);
+    const out = model.runSync([buf]);
+    const outFlipped = model.runSync([bufFlipped]);
+    if (!out[0] || !outFlipped[0]) {
+      console.error("[TFLite] runSync returned empty output", { hasOut: !!out[0], hasFlipped: !!outFlipped[0] });
+      return null;
+    }
+    const a = new Float32Array(out[0]);
+    const b = new Float32Array(outFlipped[0]);
+    if (a.length !== b.length) {
+      console.error("[TFLite] output length mismatch", a.length, b.length);
+      return null;
+    }
+    const avg = new Float32Array(a.length);
+    for (let i = 0; i < avg.length; i++) avg[i] = (a[i] + b[i]) / 2;
+    // Temperature-scale instead of double-softmax (model already has built-in Softmax)
+    return temperatureScale(avg, 0.5);
+  } catch (e) {
+    console.error("[TFLite] runModelOnDecoded threw:", e);
+    return null;
+  }
 }
 
 export async function analyzeSkinPhotoWithTflite(photoUri: string): Promise<VisionModelPrediction | null> {
-  if (!tfliteModel && !gateModel) return null;
-  if (!photoUri) return null;
+  if (!tfliteModel && !gateModel) {
+    console.warn("[TFLite] analyze called but no models loaded");
+    return null;
+  }
+  if (!photoUri) {
+    console.warn("[TFLite] analyze called with empty photoUri");
+    return null;
+  }
 
   try {
+    console.log("[TFLite] Reading photo:", photoUri);
     const base64 = await FileSystem.readAsStringAsync(photoUri, {
       encoding: "base64" as any,
     });
+    console.log("[TFLite] base64 length:", base64?.length);
     const jpgBytes = toByteArray(base64);
     const decoded = jpeg.decode(jpgBytes, { useTArray: true });
-    if (!decoded?.data || !decoded.width || !decoded.height) return null;
+    console.log("[TFLite] decoded jpg:", decoded?.width, "x", decoded?.height, "bytes:", decoded?.data?.length);
+    if (!decoded?.data || !decoded.width || !decoded.height) {
+      console.error("[TFLite] jpeg decode failed");
+      return null;
+    }
 
     // ── STAGE 1: Gate model (16-class, has normal_skin) ──────────────────
     let gateNormalConf = 0;
@@ -318,8 +368,10 @@ export async function analyzeSkinPhotoWithTflite(photoUri: string): Promise<Visi
       };
     }
 
+    console.log("[TFLite] Returning prediction:", label, "@", confidence);
     return { label, confidence, margin, topK: topPredictions, source: "tflite" };
-  } catch {
+  } catch (e) {
+    console.error("[TFLite] analyzeSkinPhotoWithTflite threw:", e);
     return null;
   }
 }

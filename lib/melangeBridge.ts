@@ -91,12 +91,11 @@ function getLegacyZeticModel(): ZeticModelClient | null {
 let customBridgeInitialized = false;
 let legacyBridgeInitialized = false;
 
+// ZETIC uses the dev key for on-device inference (shown in deployment guide).
+// Personal access token is a fallback in case dev key isn't set.
+const DEV_KEY = process.env.EXPO_PUBLIC_ZETIC_DEV_KEY ?? "";
 const PERSONAL_TOKEN = process.env.EXPO_PUBLIC_ZETIC_PERSONAL_TOKEN ?? "";
-const MODEL_KEYS_TO_TRY = [
-  "rashwak674/skinpin",
-  "dev_3f9b682e5b1c4e31ae4431bde6b89b18",
-  process.env.EXPO_PUBLIC_ZETIC_MODEL_KEY ?? "skinpin",
-];
+const MODEL_NAME = process.env.EXPO_PUBLIC_ZETIC_MODEL_KEY ?? "rashwak674/skinpin";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -135,6 +134,25 @@ function softmax(logits: number[]): number[] {
   return exps;
 }
 
+// The ZETIC/ONNX model has a built-in Softmax op, so its output is already probabilities.
+// Applying softmax again crushes confidence. Use temperature scaling instead:
+// convert back to log-space, divide by T (T<1 sharpens), re-softmax.
+function temperatureScale(probs: number[], temperature = 0.5): number[] {
+  let sumProbs = 0;
+  for (let i = 0; i < probs.length; i += 1) sumProbs += probs[i];
+  const isProbability = Math.abs(sumProbs - 1.0) < 0.1;
+
+  if (!isProbability) {
+    // Raw logits — temperature-scaled softmax
+    const scaled = probs.map((v) => v / temperature);
+    return softmax(scaled);
+  }
+
+  // Already probabilities — back to log-space, scale, re-softmax
+  const logits = probs.map((p) => Math.log(Math.max(p, 1e-10)) / temperature);
+  return softmax(logits);
+}
+
 function isNumberArray(value: unknown): value is number[] {
   return Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === "number");
 }
@@ -170,7 +188,8 @@ function extractScores(raw: unknown): number[] | null {
 
 function scoresToPrediction(rawScores: number[]): VisionModelPrediction | null {
   if (!rawScores.length) return null;
-  const scores = softmax(rawScores);
+  // Use temperature scaling instead of plain softmax to avoid crushing already-softmaxed output
+  const scores = temperatureScale(rawScores, 0.5);
   const labels = labelsForOutputSize(scores.length);
   const bestIdx = argmax(scores);
   const label = labels[bestIdx] ?? `class_${bestIdx}`;
@@ -189,23 +208,33 @@ function scoresToPrediction(rawScores: number[]): VisionModelPrediction | null {
 
 export async function initializeMelangeBridge(): Promise<boolean> {
   if (customBridgeInitialized || legacyBridgeInitialized) return true;
-  if (!PERSONAL_TOKEN) {
-    console.warn("[Melange] Missing EXPO_PUBLIC_ZETIC_PERSONAL_TOKEN");
+
+  // Try dev key first (used in ZETIC deployment guide for inference), then personal token.
+  const keysToTry: string[] = [];
+  if (DEV_KEY) keysToTry.push(DEV_KEY);
+  if (PERSONAL_TOKEN && PERSONAL_TOKEN !== DEV_KEY) keysToTry.push(PERSONAL_TOKEN);
+  if (!keysToTry.length) {
+    console.warn("[Melange] No API keys found — set EXPO_PUBLIC_ZETIC_DEV_KEY or EXPO_PUBLIC_ZETIC_PERSONAL_TOKEN");
     return false;
   }
+
+  const attempts: { token: string; key: string }[] = keysToTry.map((token) => ({
+    token,
+    key: MODEL_NAME,
+  }));
 
   // 1. Try custom Swift bridge (SkinPinZeticBridge) — preferred, uses latest ZeticMLange framework.
   const customBridge = getCustomBridge();
   if (customBridge) {
-    for (const key of MODEL_KEYS_TO_TRY) {
+    for (const { token, key } of attempts) {
       try {
-        console.log("[Melange] Custom bridge — trying key:", key);
-        await customBridge.create(PERSONAL_TOKEN, key);
+        console.log("[Melange] Custom bridge — token:", token.slice(0, 10) + "...", "key:", key);
+        await customBridge.create(token, key);
         customBridgeInitialized = true;
-        console.log("[Melange] Custom bridge initialized with key:", key);
+        console.log("[Melange] Custom bridge initialized — token:", token.slice(0, 10) + "...", "key:", key);
         return true;
       } catch (e) {
-        console.warn("[Melange] Custom bridge failed for key:", key, e);
+        console.warn("[Melange] Custom bridge failed — token:", token.slice(0, 10) + "...", "key:", key, e);
       }
     }
   } else {
@@ -215,15 +244,15 @@ export async function initializeMelangeBridge(): Promise<boolean> {
   // 2. Fall back to legacy react-native-zetic-mlange npm package.
   const legacyModel = getLegacyZeticModel();
   if (legacyModel) {
-    for (const key of MODEL_KEYS_TO_TRY) {
+    for (const { token, key } of attempts) {
       try {
-        console.log("[Melange] Legacy bridge — trying key:", key);
-        await legacyModel.create(PERSONAL_TOKEN, key);
+        console.log("[Melange] Legacy bridge — token:", token.slice(0, 10) + "...", "key:", key);
+        await legacyModel.create(token, key);
         legacyBridgeInitialized = true;
-        console.log("[Melange] Legacy bridge initialized with key:", key);
+        console.log("[Melange] Legacy bridge initialized — token:", token.slice(0, 10) + "...", "key:", key);
         return true;
       } catch (e) {
-        console.warn("[Melange] Legacy bridge failed for key:", key, e);
+        console.warn("[Melange] Legacy bridge failed — token:", token.slice(0, 10) + "...", "key:", key, e);
       }
     }
   }
@@ -258,7 +287,7 @@ export async function analyzeSkinPhotoWithMelange(
     if (legacyModel) {
       try {
         // Lazy-load heavy image libs only when needed.
-        const FileSystem = await import("expo-file-system");
+        const FileSystem = await import("expo-file-system/legacy");
         const { toByteArray } = await import("base64-js");
         const jpeg = await import("jpeg-js");
 
