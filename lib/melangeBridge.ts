@@ -188,12 +188,21 @@ function extractScores(raw: unknown): number[] | null {
 
 function scoresToPrediction(rawScores: number[]): VisionModelPrediction | null {
   if (!rawScores.length) return null;
-  // Cap any raw score > 1 (logits from ZETIC post-optimization) before temperature scaling
-  const maxRaw = Math.max(...rawScores);
-  const normalized = maxRaw > 1.5
-    ? rawScores.map((v) => v / maxRaw)   // rescale logits to 0–1 range first
-    : rawScores;
-  const scores = temperatureScale(normalized, 0.5);
+
+  // Determine if output is logits or already softmax probabilities.
+  const sumRaw = rawScores.reduce((a, b) => a + b, 0);
+  const isLogits = Math.abs(sumRaw - 1.0) > 0.15;
+
+  let scores: number[];
+  if (isLogits) {
+    // ZETIC post-optimization returns raw logits — T=1.3 gives a slightly flatter distribution
+    // without nuking genuine high-confidence disease predictions.
+    scores = softmax(rawScores.map((v) => v / 1.3));
+  } else {
+    // Already probabilities — T=1.3 moderately flattens overconfidence.
+    scores = temperatureScale(rawScores, 1.3);
+  }
+
   const labels = labelsForOutputSize(scores.length);
   const bestIdx = argmax(scores);
   const label = labels[bestIdx] ?? `class_${bestIdx}`;

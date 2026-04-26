@@ -75,9 +75,9 @@ let hasFastTflite = true;
 
 // Default is normal/clear skin. Only override to a disease when the disease model
 // is very confident AND the gate model isn't calling it normal skin.
-const NORMAL_SKIN_THRESHOLD = 0.55;           // gate model ≥55% on normal_skin → clear
-const NORMAL_SKIN_MARGIN_THRESHOLD = 0.08;    // only needs a small margin over second class
-const DISEASE_LOW_CONFIDENCE_THRESHOLD = 0.88; // disease model must be ≥88% to override gate
+const NORMAL_SKIN_THRESHOLD = 0.10;           // gate model ≥10% on normal_skin triggers check
+const NORMAL_SKIN_MARGIN_THRESHOLD = 0.05;   // gate needs only a small margin over 2nd class
+const DISEASE_LOW_CONFIDENCE_THRESHOLD = 0.75; // disease model must be ≥75% to override gate
 
 function argmax(scores: Float32Array): number {
   let bestIdx = 0;
@@ -269,8 +269,9 @@ function runModelOnDecoded(
     }
     const avg = new Float32Array(a.length);
     for (let i = 0; i < avg.length; i++) avg[i] = (a[i] + b[i]) / 2;
-    // Temperature-scale instead of double-softmax (model already has built-in Softmax)
-    return temperatureScale(avg, 0.5);
+    // Temperature-scale instead of double-softmax. T=1.3 slightly flattens overconfident
+    // outputs without destroying real high-confidence disease predictions.
+    return temperatureScale(avg, 1.3);
   } catch (e) {
     console.error("[TFLite] runModelOnDecoded threw:", e);
     return null;

@@ -289,7 +289,7 @@ async function runTests() {
   // Try ZETIC model lookup endpoints
   section("2b. ZETIC Model Key Validation");
 
-  const keysToTest = ["rashwak674/skinpin", DEV_MODEL_KEY, modelKey].filter(Boolean);
+  const keysToTest = [modelKey, "rashwak674/skinpin", DEV_MODEL_KEY].filter(Boolean);
   const apiEndpoints = [
     (key) => `https://api.zetic.ai/v1/models/${key}`,
     (key) => `https://mlange.zetic.ai/models/${key}`,
@@ -583,6 +583,184 @@ async function runTests() {
     pass(`Env model key "${modelKey}" included as fallback`);
   } else {
     fail("Env model key missing from key list");
+  }
+
+  // ── 10. ZETIC 1.6.0 SDK INTEGRATION (validates fixes from this session) ───
+
+  section("10. ZETIC 1.6.0 SDK integration");
+  const fs2 = require("fs");
+  const path2 = require("path");
+
+  const podspecPath = path2.join(
+    __dirname, "..", "node_modules", "react-native-zetic-mlange", "ZeticRN.podspec"
+  );
+  if (fs2.existsSync(podspecPath)) {
+    const podspec = fs2.readFileSync(podspecPath, "utf8");
+    if (podspec.includes('version = "1.6.0"')) {
+      pass("Podspec pinned to ZeticMLange 1.6.0");
+    } else {
+      const m = podspec.match(/version\s*=\s*"([^"]+)"/);
+      fail("Podspec version", `expected 1.6.0, got "${m?.[1] ?? "unknown"}"`);
+    }
+  } else {
+    fail("Podspec missing", podspecPath);
+  }
+
+  const rnSwiftPath = path2.join(
+    __dirname, "..", "node_modules", "react-native-zetic-mlange", "ios", "ZeticRN.swift"
+  );
+  if (fs2.existsSync(rnSwiftPath)) {
+    const src = fs2.readFileSync(rnSwiftPath, "utf8");
+    if (src.includes("ZeticMLangeModel(personalKey: personalKey, name: modelKey)")) {
+      pass("ZeticRN.swift uses 1.6.0 named-arg constructor");
+    } else {
+      fail("ZeticRN.swift constructor", "still using legacy positional form");
+    }
+    if (src.includes("RUN_NOT_SUPPORTED") || src.includes("model.run(inputs:")) {
+      pass("ZeticRN.swift run() handled for 1.6.0 (stubbed or new API)");
+    } else if (src.includes("try model.run(dataInputs)")) {
+      fail("ZeticRN.swift run()", "still calling legacy .run([Data]) API");
+    }
+  } else {
+    fail("ZeticRN.swift missing", rnSwiftPath);
+  }
+
+  const llmSwiftPath = path2.join(
+    __dirname, "..", "node_modules", "react-native-zetic-mlange", "ios", "ZeticLLM.swift"
+  );
+  if (!fs2.existsSync(llmSwiftPath)) {
+    pass("ZeticLLM.swift removed (had stale 1.2.x API, would block link)");
+  } else {
+    fail("ZeticLLM.swift still present", "remove it or it will fail to link with 1.6.0");
+  }
+
+  const customBridgePath = path2.join(
+    __dirname, "..", "ios", "app", "SkinPinZeticBridge.swift"
+  );
+  if (fs2.existsSync(customBridgePath)) {
+    const src = fs2.readFileSync(customBridgePath, "utf8");
+    if (src.includes("Tensor(data:") && src.includes("model.run(inputs:")) {
+      pass("SkinPinZeticBridge.swift uses 1.6.0 Tensor + run(inputs:) API");
+    } else {
+      fail("SkinPinZeticBridge.swift", "missing Tensor(data:)/run(inputs:)");
+    }
+    if (src.includes("ZeticMLangeModel(personalKey: personalKey, name: modelKey)")) {
+      pass("SkinPinZeticBridge.swift uses 1.6.0 named-arg constructor");
+    } else {
+      fail("SkinPinZeticBridge.swift constructor", "not using personalKey:/name:");
+    }
+  } else {
+    info("SkinPinZeticBridge.swift not present (optional custom Swift bridge)");
+  }
+
+  // ── 11. iOS DEPLOYMENT TARGET (1.6.0 needs >= 16.0) ───────────────────────
+
+  section("11. iOS deployment target");
+  const propsPath = path2.join(__dirname, "..", "ios", "Podfile.properties.json");
+  if (fs2.existsSync(propsPath)) {
+    const props = JSON.parse(fs2.readFileSync(propsPath, "utf8"));
+    const target = props["ios.deploymentTarget"];
+    if (target && parseFloat(target) >= 16.0) {
+      pass(`Podfile.properties.json deployment target = ${target} (>= 16.0)`);
+    } else {
+      fail("Deployment target", `expected >= 16.0 for 1.6.0, got ${target ?? "unset"}`);
+    }
+  } else {
+    fail("Podfile.properties.json missing", propsPath);
+  }
+
+  const pbxprojPath = path2.join(__dirname, "..", "ios", "app.xcodeproj", "project.pbxproj");
+  if (fs2.existsSync(pbxprojPath)) {
+    const pbxproj = fs2.readFileSync(pbxprojPath, "utf8");
+    const targets = [...pbxproj.matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+)/g)].map((m) => m[1]);
+    const allOk = targets.length > 0 && targets.every((t) => parseFloat(t) >= 16.0);
+    if (allOk) {
+      pass(`Xcode project IPHONEOS_DEPLOYMENT_TARGET all >= 16.0 (${[...new Set(targets)].join(", ")})`);
+    } else {
+      fail("Xcode project deployment target", `targets: ${targets.join(", ")}`);
+    }
+  }
+
+  // ── 12. ENV MODEL KEY FORMAT (1.6.0 requires "account/project") ───────────
+
+  section("12. .env model key format");
+  if (modelKey && modelKey.includes("/")) {
+    pass(`EXPO_PUBLIC_ZETIC_MODEL_KEY uses account/project format ("${modelKey}")`);
+  } else if (modelKey) {
+    fail(
+      `EXPO_PUBLIC_ZETIC_MODEL_KEY = "${modelKey}"`,
+      `1.6.0 requires "account/project" format (e.g. "rashwak674/skinpin")`
+    );
+  } else {
+    info("EXPO_PUBLIC_ZETIC_MODEL_KEY not set in .env");
+  }
+
+  // ── 13. EXPO-FILE-SYSTEM LEGACY IMPORT (deprecation throws now) ───────────
+
+  section("13. expo-file-system legacy import");
+  const tflitePath = path2.join(__dirname, "..", "lib", "tfliteBridge.ts");
+  const melangePath = path2.join(__dirname, "..", "lib", "melangeBridge.ts");
+  for (const [name, p] of [["tfliteBridge.ts", tflitePath], ["melangeBridge.ts", melangePath]]) {
+    if (fs2.existsSync(p)) {
+      const src = fs2.readFileSync(p, "utf8");
+      if (src.includes("expo-file-system/legacy")) {
+        pass(`${name} imports from "expo-file-system/legacy"`);
+      } else if (src.includes("expo-file-system")) {
+        fail(`${name} import`, 'should use "expo-file-system/legacy" — modern API throws');
+      }
+    }
+  }
+
+  // ── 14b. SkinPinZeticBridge wired into Xcode project ──────────────────────
+
+  section("14b. SkinPinZeticBridge wired into Xcode project");
+  if (fs2.existsSync(pbxprojPath)) {
+    const pbxproj = fs2.readFileSync(pbxprojPath, "utf8");
+    const swiftRegistered = pbxproj.includes("SkinPinZeticBridge.swift");
+    const mRegistered     = pbxproj.includes("SkinPinZeticBridge.m");
+    const swiftInSources  = (pbxproj.match(/SkinPinZeticBridge\.swift in Sources/g) || []).length > 0;
+    const mInSources      = (pbxproj.match(/SkinPinZeticBridge\.m in Sources/g) || []).length > 0;
+
+    if (swiftRegistered) pass("SkinPinZeticBridge.swift referenced in project.pbxproj");
+    else fail("SkinPinZeticBridge.swift NOT in project.pbxproj", "file exists on disk but Xcode won't compile it → NativeModules.SkinPinZetic will be undefined at runtime");
+
+    if (mRegistered) pass("SkinPinZeticBridge.m referenced in project.pbxproj");
+    else fail("SkinPinZeticBridge.m NOT in project.pbxproj", "RCT_EXTERN_MODULE registration won't run → bridge invisible to JS");
+
+    if (swiftInSources) pass("SkinPinZeticBridge.swift added to Compile Sources phase");
+    else if (swiftRegistered) fail("SkinPinZeticBridge.swift not in Compile Sources phase", "file ref exists but won't be built");
+
+    if (mInSources) pass("SkinPinZeticBridge.m added to Compile Sources phase");
+    else if (mRegistered) fail("SkinPinZeticBridge.m not in Compile Sources phase", "file ref exists but won't be built");
+  }
+
+  // ── 14c. Bridging header imports React headers ────────────────────────────
+
+  section("14c. Bridging header imports React types");
+  const bridgingHeaderPath = path2.join(__dirname, "..", "ios", "app", "app-Bridging-Header.h");
+  if (fs2.existsSync(bridgingHeaderPath)) {
+    const header = fs2.readFileSync(bridgingHeaderPath, "utf8");
+    if (header.includes("RCTBridgeModule.h")) {
+      pass("Bridging header imports <React/RCTBridgeModule.h>");
+    } else {
+      fail("Bridging header missing React import", "Swift won't see RCTPromiseResolveBlock → SkinPinZeticBridge.swift fails to compile");
+    }
+  }
+
+  // ── 14. ACCELERATE FRAMEWORK LINKED (required by 1.6.0) ───────────────────
+
+  section("14. Accelerate.framework linked");
+  const podfilePath = path2.join(__dirname, "..", "ios", "Podfile");
+  if (fs2.existsSync(podfilePath)) {
+    const podfile = fs2.readFileSync(podfilePath, "utf8");
+    if (podfile.includes("Accelerate") && podfile.includes("ZeticRN")) {
+      pass("Podfile auto-links Accelerate.framework into ZeticRN target");
+    } else {
+      fail(
+        "Accelerate not auto-linked in Podfile",
+        "1.6.0 needs vDSP/cblas symbols from Accelerate.framework"
+      );
+    }
   }
 
   // ── SUMMARY ───────────────────────────────────────────────────────────────

@@ -76,9 +76,6 @@ export default function InsightsScreen() {
           {!treatmentScores.length ? <Text style={styles.muted}>Need at least 3 records per treatment.</Text> : null}
         </View>
 
-        <Pressable style={styles.exportBtn} onPress={() => router.push("/report-export")}>
-          <Text style={styles.exportText}>Generate Doctor Report (PDF)</Text>
-        </Pressable>
       </ScrollView>
     </SafeAreaView>
   );
@@ -101,6 +98,4 @@ const styles = StyleSheet.create({
   badgeMid: { backgroundColor: "#F59E0B" },
   badgeHigh: { backgroundColor: "#DC2626" },
   muted: { color: "#6B7280" },
-  exportBtn: { backgroundColor: "#111827", borderRadius: 12, alignItems: "center", paddingVertical: 14 },
-  exportText: { color: "#FFFFFF", fontWeight: "800" },
 });

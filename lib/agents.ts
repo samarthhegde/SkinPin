@@ -118,27 +118,40 @@ function countPatternMatches(text: string, patterns: RegExp[]): number {
   return matches;
 }
 
+// Labels known to be heavily biased in the ZETIC Melange model — fires even on normal skin.
+// Only "inflammatory" is discounted; specific disease labels like papulosquamous (psoriasis),
+// eczema_dermatitis, malignant, etc. are NOT discounted so real conditions remain detectable.
+const BIASED_MELANGE_LABELS = new Set(["inflammatory"]);
+
 export function runVisionAgent(modelPrediction?: VisionModelPrediction | null): VisionAgentResult {
   if (modelPrediction) {
-    // Always return the best prediction — just lower the severity when confidence is below threshold.
-    // This prevents every result from showing "Uncertain visual classification".
-    const isLowConfidence = modelPrediction.confidence < 0.60 || modelPrediction.margin < 0.08;
+    // Apply bias correction for ZETIC labels that fire too easily on normal skin.
+    // Halve the effective confidence so they only break through at truly extreme scores.
+    const isBiasedMelangeLabel =
+      modelPrediction.source === "melange" &&
+      BIASED_MELANGE_LABELS.has(modelPrediction.label);
+
+    const effectiveConfidence = isBiasedMelangeLabel
+      ? modelPrediction.confidence * 0.60   // moderate discount for the known over-firer
+      : modelPrediction.confidence;
+
+    const isLowConfidence = effectiveConfidence < 0.45 || modelPrediction.margin < 0.05;
 
     const severity: "low" | "medium" | "high" = isLowConfidence
       ? "low"
-      : modelPrediction.confidence >= 0.92
+      : effectiveConfidence >= 0.72
         ? "high"
-        : modelPrediction.confidence >= 0.78
+        : effectiveConfidence >= 0.55
           ? "medium"
           : "low";
 
-    const rationale = isLowConfidence
-      ? `Model detected "${modelPrediction.label}" at ${(modelPrediction.confidence * 100).toFixed(0)}% — treating as low-confidence, applying cautious triage.`
-      : `On-device model predicted "${modelPrediction.label}" with ${(modelPrediction.confidence * 100).toFixed(0)}% confidence.`;
+    const rationale = isBiasedMelangeLabel
+      ? `Model detected "${modelPrediction.label}" (bias-corrected confidence: ${(effectiveConfidence * 100).toFixed(0)}%).`
+      : `On-device model predicted "${modelPrediction.label}" with ${(effectiveConfidence * 100).toFixed(0)}% confidence.`;
 
     return {
-      label: modelPrediction.label,   // always use real label, never "uncertain-visual"
-      confidence: modelPrediction.confidence,
+      label: modelPrediction.label,
+      confidence: effectiveConfidence,
       severity,
       rationale,
     };
@@ -289,9 +302,11 @@ export function runTriageAgent(
   // ── Three-tier conviction system ──────────────────────────────────────────
   // Default is ALWAYS clear/normal skin. Only override when the model is very confident.
   // A normal arm can score 60-70% on a disease by chance — thresholds must be high.
-  const CONVICTION  = 0.88;  // ≥88%: model is very convinced — show disease + full urgency
-  const POSSIBLE    = 0.75;  // 75–88%: reasonable signal — show "Possibly X" + mild urgency
-  // <75%: model is not convinced — default to clear (no condition found)
+  // With T=1.3 flattening, a true disease prediction lands ~60–75% instead of 90%+.
+  // These thresholds are calibrated for that flatter distribution.
+  const CONVICTION  = 0.65;  // ≥65%: model is convinced — show disease + full urgency
+  const POSSIBLE    = 0.48;  // 48–65%: reasonable signal — show "Possibly X" + mild urgency
+  // <48%: model is not convinced — default to clear (no condition found)
 
   const isDisease = hasVisionModel && vision.label !== "normal_skin";
   const modelConvinced = isDisease && vision.confidence >= CONVICTION;
@@ -339,9 +354,16 @@ export function runTriageAgent(
       urgency = maxUrgency(urgency, bumpUrgency(urgency, 1));
     }
 
-    if (darkScore > 0.15 && vision.label === "malignant_or_precancerous") {
-      urgency = "urgent";
-      whenToSeeDoctor = "Dark pigmented area detected alongside a potentially serious label — see a dermatologist today.";
+    if (darkScore > 0.15) {
+      // Dark pigmentation always bumps urgency — regardless of label.
+      // Possible melanoma / atypical mole — always needs a closer look.
+      if (vision.label === "malignant_or_precancerous" || darkScore > 0.35) {
+        urgency = "urgent";
+        whenToSeeDoctor = "Dark pigmented area detected — see a dermatologist today to rule out melanoma or atypical moles.";
+      } else {
+        urgency = maxUrgency(urgency, "soon");
+        whenToSeeDoctor = "Dark pigmented area detected — worth having a dermatologist evaluate this within 1–3 days.";
+      }
     }
   }
 
@@ -363,7 +385,8 @@ export function runTriageAgent(
   let colorNote = "";
   if (colors && isDisease) {
     if (colors.redScore > 0.30) colorNote = ` Significant redness detected (${(colors.redScore * 100).toFixed(0)}% of pixels).`;
-    else if (colors.darkScore > 0.15) colorNote = ` Dark pigmented area detected.`;
+    else if (colors.darkScore > 0.35) colorNote = ` Strongly dark pigmented area detected — urgency raised to Dangerous.`;
+    else if (colors.darkScore > 0.15) colorNote = ` Dark pigmented area detected — urgency raised to Moderate.`;
   }
 
   return {
