@@ -1,6 +1,5 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { CameraView, FlashMode, useCameraPermissions } from 'expo-camera';
-import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -200,13 +199,15 @@ export default function HomeScreen() {
 
   const pickFromLibrary = async () => {
     try {
+      // Dynamic import so a missing native module doesn't crash the whole screen at load time
+      const ImagePicker = await import('expo-image-picker');
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission needed', 'Please allow access to your photo library in Settings.');
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ['images'] as any,
         quality: 0.92,
         allowsEditing: false,
       });
@@ -214,10 +215,9 @@ export default function HomeScreen() {
         router.push({ pathname: '/symptoms', params: { photoUri: result.assets[0].uri } });
       }
     } catch {
-      // Native module not linked yet — needs a dev rebuild after expo-image-picker install
       Alert.alert(
         'Rebuild required',
-        'Photo library access needs a new dev build. Run: npx expo run:ios --device'
+        'Photo library access needs a new dev build.\n\nRun in terminal:\nnpx expo run:ios -d "00008140-001A6388119B801C"'
       );
     }
   };

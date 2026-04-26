@@ -188,8 +188,12 @@ function extractScores(raw: unknown): number[] | null {
 
 function scoresToPrediction(rawScores: number[]): VisionModelPrediction | null {
   if (!rawScores.length) return null;
-  // Use temperature scaling instead of plain softmax to avoid crushing already-softmaxed output
-  const scores = temperatureScale(rawScores, 0.5);
+  // Cap any raw score > 1 (logits from ZETIC post-optimization) before temperature scaling
+  const maxRaw = Math.max(...rawScores);
+  const normalized = maxRaw > 1.5
+    ? rawScores.map((v) => v / maxRaw)   // rescale logits to 0–1 range first
+    : rawScores;
+  const scores = temperatureScale(normalized, 0.5);
   const labels = labelsForOutputSize(scores.length);
   const bestIdx = argmax(scores);
   const label = labels[bestIdx] ?? `class_${bestIdx}`;
