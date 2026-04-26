@@ -285,33 +285,60 @@ export function runTriageAgent(
     whenToSeeDoctor = "Seek urgent care today, especially if fever, pain, or rapid spreading is present.";
   }
 
-  // ── Label-based urgency floor ─────────────────────────────────────────────
-  const floor = hasVisionModel ? (URGENCY_FLOOR[vision.label] ?? null) : null;
-  if (floor) {
-    urgency = maxUrgency(urgency, floor);
-    if (floor === "urgent") {
-      whenToSeeDoctor = "This type of condition should be evaluated by a dermatologist promptly — please see a doctor today.";
-    } else if (floor === "soon" && URGENCY_RANK[urgency] < URGENCY_RANK["soon"]) {
-      whenToSeeDoctor = "This condition typically warrants a doctor visit within 1–3 days.";
+  // ── Three-tier conviction system ──────────────────────────────────────────
+  // Only flag a disease when the model is genuinely convinced.
+  // This prevents clear skin from being mislabeled as a disease at low confidence.
+  const CONVICTION  = 0.70;  // ≥70%: model is convinced — show disease + full urgency
+  const POSSIBLE    = 0.55;  // 55–70%: not conclusive — show "Possibly X" + mild urgency
+  // <55%: model is guessing — default to clear (no condition found)
+
+  const isDisease = hasVisionModel && vision.label !== "normal_skin";
+  const modelConvinced = isDisease && vision.confidence >= CONVICTION;
+  const modelPossible  = isDisease && vision.confidence >= POSSIBLE && vision.confidence < CONVICTION;
+  const modelUncertain = isDisease && vision.confidence < POSSIBLE;
+
+  // Default to clear when model isn't convinced AND no symptom risk
+  if (modelUncertain && !hasSymptomRisk) {
+    return {
+      condition: "normal_skin",
+      confidence: 0.85,
+      urgency: "clear",
+      whenToSeeDoctor: "Nothing obvious detected. Re-scan in better lighting if you notice changes.",
+      explanation: "Model confidence was too low to identify a specific condition — defaulting to no condition found.",
+    };
+  }
+
+  // Possible detection: drop urgency to monitor minimum, don't escalate
+  if (modelPossible) {
+    urgency = urgency === "urgent" ? "soon" : urgency === "soon" ? "monitor" : "monitor";
+    whenToSeeDoctor = "This may warrant monitoring — re-scan in a few days or consult a doctor if it persists.";
+  }
+
+  // ── Label-based urgency floor (only when model is convinced) ─────────────
+  if (modelConvinced) {
+    const floor = URGENCY_FLOOR[vision.label] ?? null;
+    if (floor) {
+      urgency = maxUrgency(urgency, floor);
+      if (floor === "urgent") {
+        whenToSeeDoctor = "This type of condition should be evaluated by a dermatologist promptly — please see a doctor today.";
+      } else if (floor === "soon" && URGENCY_RANK[urgency] >= URGENCY_RANK["soon"]) {
+        whenToSeeDoctor = "This condition typically warrants a doctor visit within 1–3 days.";
+      }
     }
   }
 
-  // ── Color-aware urgency boost ─────────────────────────────────────────────
-  // Only boost (never lower) urgency, and only when the model found a real condition.
-  if (hasVisionModel && vision.label !== "normal_skin" && colors) {
+  // ── Color-aware urgency boost (only when model is at least possible) ──────
+  if ((modelConvinced || modelPossible) && colors) {
     const { redScore = 0, darkScore = 0 } = colors;
 
     if (redScore > 0.60) {
-      // Very strong inflammation signal — bump up 2 tiers (e.g. monitor → urgent)
       urgency = maxUrgency(urgency, bumpUrgency(urgency, 2));
       whenToSeeDoctor = "Significant redness detected — this level of inflammation warrants same-day or next-day care.";
     } else if (redScore > 0.30) {
-      // Moderate inflammation — bump up 1 tier
       urgency = maxUrgency(urgency, bumpUrgency(urgency, 1));
     }
 
     if (darkScore > 0.15 && vision.label === "malignant_or_precancerous") {
-      // Dark pigmented area + malignant label → always urgent
       urgency = "urgent";
       whenToSeeDoctor = "Dark pigmented area detected alongside a potentially serious label — see a dermatologist today.";
     }
@@ -321,18 +348,20 @@ export function runTriageAgent(
     ? Math.min(0.95, Math.max(0.2, vision.confidence + symptoms.concernFlags.length * 0.03))
     : Math.min(0.7, 0.25 + symptoms.concernFlags.length * 0.06);
 
-  const condition = hasVisionModel
-    ? vision.label
-    : combinedSeverity === "high"
-      ? "Possible infection or severe inflammation"
-      : combinedSeverity === "medium"
-        ? "Possible dermatitis or progressing inflammatory condition"
-        : "No skin condition found";
+  // Prefix "possible:" for medium-confidence detections — UI shows "Possibly Eczema / Dermatitis"
+  const condition = modelPossible
+    ? `possible:${vision.label}`
+    : hasVisionModel
+      ? vision.label
+      : combinedSeverity === "high"
+        ? "Possible infection or severe inflammation"
+        : combinedSeverity === "medium"
+          ? "Possible dermatitis or progressing inflammatory condition"
+          : "normal_skin";
 
-  // Build explanation including color signals if present
   let colorNote = "";
-  if (colors && hasVisionModel && vision.label !== "normal_skin") {
-    if (colors.redScore > 0.30) colorNote = ` Significant redness detected (score: ${(colors.redScore * 100).toFixed(0)}%).`;
+  if (colors && isDisease) {
+    if (colors.redScore > 0.30) colorNote = ` Significant redness detected (${(colors.redScore * 100).toFixed(0)}% of pixels).`;
     else if (colors.darkScore > 0.15) colorNote = ` Dark pigmented area detected.`;
   }
 
@@ -343,7 +372,7 @@ export function runTriageAgent(
     whenToSeeDoctor,
     explanation:
       hasVisionModel
-        ? `Decision combines visual model signal with user context (symptoms, duration, risk phrases) and color analysis.${colorNote}`
+        ? `Decision combines visual model signal with user context and color analysis.${colorNote}`
         : "Decision is currently symptom-only because image model inference is unavailable.",
   };
 }

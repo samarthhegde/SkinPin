@@ -78,6 +78,11 @@ const CONDITION_PRETTY: Record<string, string> = {
 };
 
 function prettyCondition(raw: string): string {
+  if (raw.startsWith("possible:")) {
+    const actual = raw.slice(9);
+    const pretty = CONDITION_PRETTY[actual] ?? actual.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    return `Possibly ${pretty}`;
+  }
   return CONDITION_PRETTY[raw] ?? raw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -205,8 +210,10 @@ export default function ResultsScreen() {
   const urgencyCfg = URGENCY_CONFIG[urgency];
   const confidence = output ? Math.round(output.consensus.confidence * 100) : 0;
   const rawCondition = output?.consensus.condition ?? '—';
+  // Strip possible: prefix for next-step logic
+  const conditionForSteps = rawCondition.startsWith("possible:") ? rawCondition.slice(9) : rawCondition;
   const displayCondition = prettyCondition(rawCondition);
-  const nextSteps = output ? getNextSteps(urgency, rawCondition) : [];
+  const nextSteps = output ? getNextSteps(urgency, conditionForSteps) : [];
   const bullets = output ? parseBullets(output.consensus.explanation) : [];
 
   return (
@@ -298,7 +305,7 @@ export default function ResultsScreen() {
                       <Text style={[styles.topKRank, i === 0 && { color: urgencyCfg.badge }]}>
                         #{i + 1}
                       </Text>
-                      <Text style={styles.topKLabel}>{prettyCondition(p.label)}</Text>
+                      <Text style={styles.topKLabel}>{prettyCondition(p.label.startsWith("possible:") ? p.label.slice(9) : p.label)}</Text>
                       <Text style={[styles.topKPct, { color: barColor }]}>{pct}%</Text>
                     </View>
                     <View style={styles.barTrack}>
