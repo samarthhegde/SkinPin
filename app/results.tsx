@@ -77,43 +77,32 @@ const CONDITION_PRETTY: Record<string, string> = {
   'Warts Molluscum and other Viral Infections':                     'Warts / Viral Infection',
 };
 
-// Maps each super-class to 5 specific diseases from the original 23 training conditions
-const SUPER_CLASS_DISEASES: Record<string, string[]> = {
-  inflammatory:              ['Acne', 'Rosacea', 'Perioral Dermatitis', 'Folliculitis', 'Miliaria (Heat Rash)'],
-  malignant_or_precancerous: ['Melanoma', 'Basal Cell Carcinoma', 'Squamous Cell Carcinoma', 'Actinic Keratosis', 'Merkel Cell Carcinoma'],
-  eczema_dermatitis:         ['Atopic Dermatitis', 'Contact Dermatitis', 'Seborrheic Dermatitis', 'Nummular Eczema', 'Dyshidrotic Eczema'],
-  autoimmune_bullous:        ['Bullous Pemphigoid', 'Pemphigus Vulgaris', 'Dermatitis Herpetiformis', 'Linear IgA Disease', 'Epidermolysis Bullosa'],
-  infectious_bacterial:      ['Cellulitis', 'Impetigo', 'Erysipelas', 'Folliculitis', 'Infected Wound'],
-  hair_nail_disorder:        ['Alopecia Areata', 'Nail Fungus', 'Tinea Capitis', 'Trichotillomania', 'Androgenetic Alopecia'],
-  infectious_viral_std:      ['Warts (HPV)', 'Herpes Simplex', 'Molluscum Contagiosum', 'Chickenpox', 'Shingles (Zoster)'],
-  pigment_light_disorder:    ['Vitiligo', 'Melasma', 'Post-inflammatory Hyperpigmentation', 'Albinism', 'Café-au-lait Spots'],
-  autoimmune_connective:     ['Lupus Erythematosus', 'Dermatomyositis', 'Scleroderma', 'Morphea', 'Mixed Connective Tissue Disease'],
-  papulosquamous:            ['Psoriasis', 'Lichen Planus', 'Pityriasis Rosea', 'Pityriasis Versicolor', 'Seborrheic Dermatitis'],
-  infestation_bite:          ['Scabies', 'Insect Bites', 'Lice (Pediculosis)', 'Bed Bug Bites', 'Tick Bite'],
-  benign_tumor:              ['Seborrheic Keratosis', 'Dermatofibroma', 'Lipoma', 'Epidermoid Cyst', 'Skin Tag'],
-  systemic_manifestation:    ['Diabetic Dermopathy', 'Acanthosis Nigricans', 'Livedo Reticularis', 'Xanthoma', 'Pyoderma Gangrenosum'],
-  infectious_fungal:         ['Ringworm (Tinea Corporis)', 'Athlete\'s Foot', 'Candidiasis', 'Tinea Versicolor', 'Onychomycosis'],
-  vascular:                  ['Port Wine Stain', 'Spider Angioma', 'Vasculitis', 'Erythema Nodosum', 'Raynaud\'s Phenomenon'],
-};
-
-// Plain-English super-class label shown in the condition header for Moderate/Dangerous
-const SUPER_CLASS_DISPLAY: Record<string, string> = {
-  inflammatory:              'Inflammatory Skin Condition',
-  malignant_or_precancerous: 'Possible Pre-Cancerous / Malignant Lesion',
-  eczema_dermatitis:         'Eczema or Dermatitis',
-  autoimmune_bullous:        'Autoimmune Blistering Disorder',
-  infectious_bacterial:      'Bacterial Skin Infection',
-  hair_nail_disorder:        'Hair or Nail Disorder',
-  infectious_viral_std:      'Viral Skin Infection',
-  pigment_light_disorder:    'Pigmentation Disorder',
-  autoimmune_connective:     'Autoimmune Skin Disorder',
-  papulosquamous:            'Psoriasis or Lichen-type Condition',
-  infestation_bite:          'Skin Infestation or Bite Reaction',
-  benign_tumor:              'Benign Skin Growth',
-  systemic_manifestation:    'Skin Sign of Internal Condition',
-  infectious_fungal:         'Fungal Skin Infection',
-  vascular:                  'Vascular Skin Condition',
-};
+// All 23 training-condition display names — 5 are picked at random for Moderate/Dangerous
+const ALL_23_DISEASE_NAMES = [
+  'Acne / Rosacea',
+  'Actinic Keratosis / Skin Cancer',
+  'Atopic Dermatitis',
+  'Blistering Skin Disease',
+  'Cellulitis / Impetigo',
+  'Eczema',
+  'Drug Rash / Skin Eruption',
+  'Hair Loss / Alopecia',
+  'Herpes / HPV Lesion',
+  'Pigmentation Disorder',
+  'Lupus / Connective Tissue',
+  'Melanoma / Moles',
+  'Nail Fungus',
+  'Contact Dermatitis',
+  'Psoriasis / Lichen Planus',
+  'Scabies / Insect Bite',
+  'Seborrheic Keratosis',
+  'Systemic Skin Condition',
+  'Ringworm / Fungal Infection',
+  'Hives / Urticaria',
+  'Vascular Growth',
+  'Vasculitis',
+  'Warts / Viral Infection',
+];
 
 function prettyCondition(raw: string): string {
   if (raw.startsWith("possible:")) {
@@ -181,7 +170,6 @@ export default function ResultsScreen() {
   const [loading, setLoading] = useState(true);
   const [inferenceBackend, setInferenceBackend] = useState<'melange' | 'tflite' | 'symptoms-only'>('symptoms-only');
   const [colorFeatures, setColorFeatures] = useState<ColorFeatures | null>(null);
-  const [topPredictions, setTopPredictions] = useState<{ label: string; confidence: number }[]>([]);
 
   useEffect(() => {
     const run = async () => {
@@ -202,7 +190,6 @@ export default function ResultsScreen() {
             modelPrediction = await analyzeSkinPhotoWithMelange(photoUri);
             if (modelPrediction) {
               setInferenceBackend('melange');
-              if (modelPrediction.topK?.length) setTopPredictions(modelPrediction.topK);
               console.log('[Results] Using Melange backend:', modelPrediction.label, modelPrediction.confidence);
             }
           }
@@ -219,7 +206,6 @@ export default function ResultsScreen() {
               modelPrediction = await analyzeSkinPhotoWithTflite(photoUri);
               if (modelPrediction) {
                 setInferenceBackend('tflite');
-                if (modelPrediction.topK?.length) setTopPredictions(modelPrediction.topK);
                 console.log('[Results] Using TFLite backend:', modelPrediction.label, modelPrediction.confidence);
               }
             }
@@ -250,23 +236,25 @@ export default function ResultsScreen() {
   const rawCondition = output?.consensus.condition ?? '—';
   const conditionForSteps = rawCondition.startsWith("possible:") ? rawCondition.slice(9) : rawCondition;
 
-  // UI condition display — varies by urgency tier
-  const isMild = urgency === 'clear' || urgency === 'monitor';
   const isSerious = urgency === 'soon' || urgency === 'urgent';
 
-  // For Good/Mild: randomly pick between two reassuring labels (seeded per scan so it's stable)
+  // Good/Mild: 50/50 between two friendly headlines (stable per scan via rawCondition key)
   const mildLabel = useMemo(() => {
-    return Math.random() < 0.5 ? 'No Skin Condition Found' : 'Possible Mild Irritation';
+    return Math.random() < 0.5 ? 'No Skin Condition Found' : 'Possible Skin Irritation Found';
   }, [rawCondition]);
 
-  // For Moderate/Dangerous: use the super-class plain English label
-  const baseLabel = conditionForSteps.replace(/^possible:/, '');
-  const seriousLabel = SUPER_CLASS_DISPLAY[baseLabel] ?? prettyCondition(rawCondition);
+  const displayCondition = useMemo(() => {
+    if (urgency === 'clear' || urgency === 'monitor') return mildLabel;
+    if (urgency === 'soon') return 'Skin Irritation Found';
+    return 'Potential Pre-Cancerous';
+  }, [urgency, mildLabel]);
 
-  const displayCondition = isMild ? mildLabel : seriousLabel;
-
-  // The 5 specific diseases shown under Moderate/Dangerous
-  const possibleDiseases: string[] = isSerious ? (SUPER_CLASS_DISEASES[baseLabel] ?? []) : [];
+  // Moderate/Dangerous: 5 random picks from full 23 each time
+  const possibleDiseases: string[] = useMemo(() => {
+    if (!isSerious) return [];
+    const shuffled = [...ALL_23_DISEASE_NAMES].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, 5);
+  }, [rawCondition, urgency]);
 
   const nextSteps = output ? getNextSteps(urgency, conditionForSteps) : [];
   const bullets = output ? parseBullets(output.consensus.explanation) : [];
@@ -347,37 +335,12 @@ export default function ResultsScreen() {
             </View>
           </View>
 
-          {/* Top-3 model predictions — only shown for moderate/high urgency */}
-          {topPredictions.length > 1 && urgency !== 'clear' && urgency !== 'monitor' && (
-            <View style={styles.card}>
-              <Text style={styles.sectionLabel}>MODEL CONSIDERED</Text>
-              {topPredictions.slice(0, 3).map((p, i) => {
-                const pct = Math.round(p.confidence * 100);
-                const barColor = i === 0 ? urgencyCfg.badge : i === 1 ? '#A78BFA' : '#D1D5DB';
-                return (
-                  <View key={i} style={styles.topKRow}>
-                    <View style={styles.topKLabelRow}>
-                      <Text style={[styles.topKRank, i === 0 && { color: urgencyCfg.badge }]}>
-                        #{i + 1}
-                      </Text>
-                      <Text style={styles.topKLabel}>{prettyCondition(p.label.startsWith("possible:") ? p.label.slice(9) : p.label)}</Text>
-                      <Text style={[styles.topKPct, { color: barColor }]}>{pct}%</Text>
-                    </View>
-                    <View style={styles.barTrack}>
-                      <View style={[styles.barFill, { width: `${pct}%` as any, backgroundColor: barColor }]} />
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-
           {/* Possible specific diseases — only for Moderate/Dangerous */}
           {possibleDiseases.length > 0 && (
             <View style={styles.card}>
               <Text style={styles.sectionLabel}>COULD BE ANY OF THESE</Text>
               <Text style={styles.diseaseListSubtitle}>
-                Based on what the model detected — a doctor can confirm which one.
+                Five examples from the 23-condition training set — not a diagnosis. A doctor can confirm.
               </Text>
               {possibleDiseases.map((disease, i) => (
                 <View key={i} style={styles.diseaseRow}>
@@ -714,12 +677,6 @@ const styles = StyleSheet.create({
   },
 
   // Top-K predictions
-  topKRow: { gap: 4 },
-  topKLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  topKRank: { fontSize: 11, fontWeight: '800', color: GRAY_LABEL, width: 20 },
-  topKLabel: { flex: 1, fontSize: 13, fontWeight: '600', color: GRAY_TEXT },
-  topKPct: { fontSize: 13, fontWeight: '700' },
-
   // Disease list (Moderate/Dangerous)
   diseaseListSubtitle: { fontSize: 12, color: GRAY_LABEL, lineHeight: 17, marginBottom: 4 },
   diseaseRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 5 },
