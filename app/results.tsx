@@ -1,5 +1,6 @@
 import { LocalAgentOutput, runLocalAgentPipelineAsync } from '@/lib/agents';
 import { urgencyToSeverity } from '@/lib/bodyMap';
+import { ColorFeatures, analyzePhotoColors } from '@/lib/colorAnalyzer';
 import { analyzeSkinPhotoWithMelange, initializeMelangeBridge } from '@/lib/melangeBridge';
 import { analyzeSkinPhotoWithTflite, initializeTfliteBridge } from '@/lib/tfliteBridge';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -136,6 +137,8 @@ export default function ResultsScreen() {
   const [output, setOutput] = useState<LocalAgentOutput | null>(null);
   const [loading, setLoading] = useState(true);
   const [inferenceBackend, setInferenceBackend] = useState<'melange' | 'tflite' | 'symptoms-only'>('symptoms-only');
+  const [colorFeatures, setColorFeatures] = useState<ColorFeatures | null>(null);
+  const [topPredictions, setTopPredictions] = useState<{ label: string; confidence: number }[]>([]);
 
   useEffect(() => {
     const run = async () => {
@@ -144,13 +147,19 @@ export default function ResultsScreen() {
       let modelPrediction = null;
 
       if (photoUri) {
-        // 1. Try Melange (ZETIC) first — primary backend for ZETIC challenge.
+        // 1. Run color analysis in parallel with model init (doesn't depend on model)
+        analyzePhotoColors(photoUri).then((cf) => {
+          if (cf) setColorFeatures(cf);
+        });
+
+        // 2. Try Melange (ZETIC) first — primary backend for ZETIC challenge.
         try {
           const melangeReady = await initializeMelangeBridge();
           if (melangeReady) {
             modelPrediction = await analyzeSkinPhotoWithMelange(photoUri);
             if (modelPrediction) {
               setInferenceBackend('melange');
+              if (modelPrediction.topK?.length) setTopPredictions(modelPrediction.topK);
               console.log('[Results] Using Melange backend:', modelPrediction.label, modelPrediction.confidence);
             }
           }
@@ -158,21 +167,18 @@ export default function ResultsScreen() {
           console.warn('[Results] Melange attempt failed:', e);
         }
 
-        // 2. Fallback to TFLite if Melange gave nothing — guarantees a real decision.
+        // 3. Fallback to TFLite if Melange gave nothing — guarantees a real decision.
         if (!modelPrediction) {
           console.log('[Results] Melange unavailable, falling back to TFLite…');
           try {
             const tfliteReady = await initializeTfliteBridge();
-            console.log('[Results] TFLite init result:', tfliteReady);
             if (tfliteReady) {
               modelPrediction = await analyzeSkinPhotoWithTflite(photoUri);
-              console.log('[Results] TFLite prediction:', modelPrediction ? modelPrediction.label : 'null');
               if (modelPrediction) {
                 setInferenceBackend('tflite');
+                if (modelPrediction.topK?.length) setTopPredictions(modelPrediction.topK);
                 console.log('[Results] Using TFLite backend:', modelPrediction.label, modelPrediction.confidence);
               }
-            } else {
-              console.error('[Results] TFLite init returned false — models failed to load');
             }
           } catch (e) {
             console.error('[Results] TFLite fallback threw exception:', e);
@@ -182,11 +188,12 @@ export default function ResultsScreen() {
 
       if (!modelPrediction) {
         setInferenceBackend('symptoms-only');
-        console.log('[Results] No vision model result — running on symptoms only.');
       }
 
-      // 3. Pass both the photo prediction AND symptoms into the agent pipeline
-      const result = await runLocalAgentPipelineAsync(symptoms ?? '', modelPrediction);
+      // 4. Pass photo prediction + symptoms + color features into the agent pipeline
+      const colors = await analyzePhotoColors(photoUri ?? '').catch(() => null);
+      if (colors) setColorFeatures(colors);
+      const result = await runLocalAgentPipelineAsync(symptoms ?? '', modelPrediction, colors);
       setOutput(result);
       setLoading(false);
     };
@@ -278,6 +285,31 @@ export default function ResultsScreen() {
             </View>
           </View>
 
+          {/* Top-3 model predictions */}
+          {topPredictions.length > 1 && (
+            <View style={styles.card}>
+              <Text style={styles.sectionLabel}>MODEL CONSIDERED</Text>
+              {topPredictions.slice(0, 3).map((p, i) => {
+                const pct = Math.round(p.confidence * 100);
+                const barColor = i === 0 ? urgencyCfg.badge : i === 1 ? '#A78BFA' : '#D1D5DB';
+                return (
+                  <View key={i} style={styles.topKRow}>
+                    <View style={styles.topKLabelRow}>
+                      <Text style={[styles.topKRank, i === 0 && { color: urgencyCfg.badge }]}>
+                        #{i + 1}
+                      </Text>
+                      <Text style={styles.topKLabel}>{prettyCondition(p.label)}</Text>
+                      <Text style={[styles.topKPct, { color: barColor }]}>{pct}%</Text>
+                    </View>
+                    <View style={styles.barTrack}>
+                      <View style={[styles.barFill, { width: `${pct}%` as any, backgroundColor: barColor }]} />
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
           {/* Urgency badge */}
           <View style={[styles.card, { backgroundColor: urgencyCfg.bg }]}>
             <Text style={styles.sectionLabel}>URGENCY</Text>
@@ -294,6 +326,30 @@ export default function ResultsScreen() {
               AI engine: {inferenceBackend === 'melange' ? 'ZETIC Melange ✓' : inferenceBackend === 'tflite' ? 'TFLite (local)' : 'Symptoms only'}
             </Text>
           </View>
+
+          {/* Color signal card — only shown when notable */}
+          {colorFeatures && (colorFeatures.redScore > 0.20 || colorFeatures.darkScore > 0.10) && (
+            <View style={[styles.card, { backgroundColor: colorFeatures.redScore > 0.40 ? '#FFF1F2' : '#FFFBEB' }]}>
+              <Text style={styles.sectionLabel}>COLOR ANALYSIS</Text>
+              {colorFeatures.redScore > 0.20 && (
+                <View style={styles.colorRow}>
+                  <View style={[styles.colorDot, { backgroundColor: '#EF4444' }]} />
+                  <Text style={styles.colorText}>
+                    Redness detected — {colorFeatures.redScore > 0.50 ? 'significant inflammation signal' : colorFeatures.redScore > 0.30 ? 'moderate redness present' : 'mild redness present'}
+                    {' '}({Math.round(colorFeatures.redScore * 100)}% of pixels)
+                  </Text>
+                </View>
+              )}
+              {colorFeatures.darkScore > 0.10 && (
+                <View style={styles.colorRow}>
+                  <View style={[styles.colorDot, { backgroundColor: '#374151' }]} />
+                  <Text style={styles.colorText}>
+                    Dark pigmented area detected — consider dermoscopy review
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
 
           {/* AI explanation (Gemini) */}
           {bullets.length > 0 && (
@@ -578,6 +634,18 @@ const styles = StyleSheet.create({
     color: '#4C1D95',
     lineHeight: 21,
   },
+
+  // Top-K predictions
+  topKRow: { gap: 4 },
+  topKLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  topKRank: { fontSize: 11, fontWeight: '800', color: GRAY_LABEL, width: 20 },
+  topKLabel: { flex: 1, fontSize: 13, fontWeight: '600', color: GRAY_TEXT },
+  topKPct: { fontSize: 13, fontWeight: '700' },
+
+  // Color analysis
+  colorRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  colorDot: { width: 10, height: 10, borderRadius: 5, marginTop: 4, flexShrink: 0 },
+  colorText: { flex: 1, fontSize: 13, color: GRAY_TEXT, lineHeight: 19 },
 
   // Disclaimer
   disclaimerCard: {

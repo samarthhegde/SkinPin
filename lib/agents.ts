@@ -1,4 +1,5 @@
 import { ContextReasonerSignal, reasonSymptomContextOnDevice } from "@/lib/contextReasoner";
+import { ColorFeatures } from "@/lib/colorAnalyzer";
 
 type VisionModelPrediction = {
   label: string;
@@ -206,48 +207,120 @@ export function runSymptomAgent(
   };
 }
 
+// Certain labels are inherently serious — enforce a minimum urgency regardless of confidence.
+const URGENCY_FLOOR: Record<string, ConsensusResult["urgency"]> = {
+  malignant_or_precancerous:  "urgent",
+  "Melanoma Skin Cancer Nevi and Moles": "urgent",
+  "Actinic Keratosis Basal Cell Carcinoma and other Malignant Lesions": "urgent",
+  infectious_bacterial:       "soon",
+  "Cellulitis Impetigo and other Bacterial Infections": "soon",
+  autoimmune_bullous:         "soon",
+  "Bullous Disease Photos":   "soon",
+  infectious_viral_std:       "soon",
+  "Herpes HPV and other STDs Photos": "soon",
+  autoimmune_connective:      "soon",
+  "Lupus and other Connective Tissue diseases": "soon",
+  systemic_manifestation:     "soon",
+  "Systemic Disease":         "soon",
+};
+
+const URGENCY_RANK: Record<ConsensusResult["urgency"], number> = {
+  clear: 0, monitor: 1, soon: 2, urgent: 3,
+};
+
+function maxUrgency(
+  a: ConsensusResult["urgency"],
+  b: ConsensusResult["urgency"]
+): ConsensusResult["urgency"] {
+  return URGENCY_RANK[a] >= URGENCY_RANK[b] ? a : b;
+}
+
+function bumpUrgency(
+  u: ConsensusResult["urgency"],
+  steps: number
+): ConsensusResult["urgency"] {
+  const tiers: ConsensusResult["urgency"][] = ["clear", "monitor", "soon", "urgent"];
+  const idx = Math.min(tiers.length - 1, URGENCY_RANK[u] + steps);
+  return tiers[idx];
+}
+
 export function runTriageAgent(
   vision: VisionAgentResult,
-  symptoms: SymptomAgentResult
+  symptoms: SymptomAgentResult,
+  colors?: ColorFeatures | null
 ): ConsensusResult {
-  const hasVisionModel = vision.label !== "model-unavailable" && vision.label !== "uncertain-visual";
+  const hasVisionModel = vision.label !== "model-unavailable";
   const isNormalSkin = vision.label === "normal_skin" && vision.confidence >= 0.70;
   const hasSymptomRisk =
     symptoms.severity !== "low" ||
     symptoms.concernFlags.some((flag) => !flag.startsWith("reassuring_context:")) ||
     (symptoms.durationDays !== null && symptoms.durationDays >= 3);
 
-    // If gate model is confident this is normal skin, short-circuit to all-clear
-    if (isNormalSkin && !hasSymptomRisk) {
-      return {
-        condition: "No skin condition found",
-        confidence: vision.confidence,
-        urgency: "clear",
-        whenToSeeDoctor: "No issues detected. Keep an eye on the area and see a doctor if anything changes.",
-        explanation: "The on-device model compared your photo against 16 skin categories and is confident the skin appears normal.",
-      };
-    }
+  // Short-circuit to all-clear only if model is confident this is normal skin
+  // AND colors don't show inflammation AND no symptom risk
+  const isAngryRed = (colors?.redScore ?? 0) > 0.25;
+  if (isNormalSkin && !hasSymptomRisk && !isAngryRed) {
+    return {
+      condition: "normal_skin",
+      confidence: vision.confidence,
+      urgency: "clear",
+      whenToSeeDoctor: "No issues detected. Keep an eye on the area and see a doctor if anything changes.",
+      explanation: "The on-device model compared your photo against 16 skin categories and is confident the skin appears normal.",
+    };
+  }
 
   const combinedSeverity = levelFromRank(
     Math.max(severityRank(vision.severity), severityRank(symptoms.severity))
   );
 
   let urgency: ConsensusResult["urgency"] = "monitor";
-  let whenToSeeDoctor = "No issues detected. Keep an eye on the area and see a doctor if anything changes.";
+  let whenToSeeDoctor = "Keep an eye on this area. Re-scan if it changes.";
 
   if (combinedSeverity === "medium") {
     urgency = "soon";
-    whenToSeeDoctor = "Book a non-urgent doctor visit within 1-3 days.";
+    whenToSeeDoctor = "Book a non-urgent doctor visit within 1–3 days.";
   }
   if (combinedSeverity === "high") {
     urgency = "urgent";
-    whenToSeeDoctor = "Seek urgent care today, especially if fever/pain/spreading is present.";
+    whenToSeeDoctor = "Seek urgent care today, especially if fever, pain, or rapid spreading is present.";
   }
+
+  // ── Label-based urgency floor ─────────────────────────────────────────────
+  const floor = hasVisionModel ? (URGENCY_FLOOR[vision.label] ?? null) : null;
+  if (floor) {
+    urgency = maxUrgency(urgency, floor);
+    if (floor === "urgent") {
+      whenToSeeDoctor = "This type of condition should be evaluated by a dermatologist promptly — please see a doctor today.";
+    } else if (floor === "soon" && URGENCY_RANK[urgency] < URGENCY_RANK["soon"]) {
+      whenToSeeDoctor = "This condition typically warrants a doctor visit within 1–3 days.";
+    }
+  }
+
+  // ── Color-aware urgency boost ─────────────────────────────────────────────
+  // Only boost (never lower) urgency, and only when the model found a real condition.
+  if (hasVisionModel && vision.label !== "normal_skin" && colors) {
+    const { redScore = 0, darkScore = 0 } = colors;
+
+    if (redScore > 0.60) {
+      // Very strong inflammation signal — bump up 2 tiers (e.g. monitor → urgent)
+      urgency = maxUrgency(urgency, bumpUrgency(urgency, 2));
+      whenToSeeDoctor = "Significant redness detected — this level of inflammation warrants same-day or next-day care.";
+    } else if (redScore > 0.30) {
+      // Moderate inflammation — bump up 1 tier
+      urgency = maxUrgency(urgency, bumpUrgency(urgency, 1));
+    }
+
+    if (darkScore > 0.15 && vision.label === "malignant_or_precancerous") {
+      // Dark pigmented area + malignant label → always urgent
+      urgency = "urgent";
+      whenToSeeDoctor = "Dark pigmented area detected alongside a potentially serious label — see a dermatologist today.";
+    }
+  }
+
   const confidence = hasVisionModel
     ? Math.min(0.95, Math.max(0.2, vision.confidence + symptoms.concernFlags.length * 0.03))
     : Math.min(0.7, 0.25 + symptoms.concernFlags.length * 0.06);
 
-  // Always display the real detected condition — prettification happens in the UI
   const condition = hasVisionModel
     ? vision.label
     : combinedSeverity === "high"
@@ -256,6 +329,13 @@ export function runTriageAgent(
         ? "Possible dermatitis or progressing inflammatory condition"
         : "No skin condition found";
 
+  // Build explanation including color signals if present
+  let colorNote = "";
+  if (colors && hasVisionModel && vision.label !== "normal_skin") {
+    if (colors.redScore > 0.30) colorNote = ` Significant redness detected (score: ${(colors.redScore * 100).toFixed(0)}%).`;
+    else if (colors.darkScore > 0.15) colorNote = ` Dark pigmented area detected.`;
+  }
+
   return {
     condition,
     confidence,
@@ -263,20 +343,19 @@ export function runTriageAgent(
     whenToSeeDoctor,
     explanation:
       hasVisionModel
-        ? "Decision combines visual model signal with user context (symptoms, progression, duration, and risk phrases) using local multi-agent consensus."
-        : vision.label === "uncertain-visual"
-          ? "Decision uses user context with uncertainty-aware visual fallback because image confidence was low."
-          : "Decision is currently symptom-only because image model inference is unavailable.",
+        ? `Decision combines visual model signal with user context (symptoms, duration, risk phrases) and color analysis.${colorNote}`
+        : "Decision is currently symptom-only because image model inference is unavailable.",
   };
 }
 
 export function runLocalAgentPipeline(
   symptomText: string,
-  modelPrediction?: VisionModelPrediction | null
+  modelPrediction?: VisionModelPrediction | null,
+  colors?: ColorFeatures | null
 ): LocalAgentOutput {
   const vision = runVisionAgent(modelPrediction);
   const symptoms = runSymptomAgent(symptomText);
-  const consensus = runTriageAgent(vision, symptoms);
+  const consensus = runTriageAgent(vision, symptoms, colors);
 
   const trace: AgentTrace[] = [
     {
@@ -303,12 +382,13 @@ export function runLocalAgentPipeline(
 
 export async function runLocalAgentPipelineAsync(
   symptomText: string,
-  modelPrediction?: VisionModelPrediction | null
+  modelPrediction?: VisionModelPrediction | null,
+  colors?: ColorFeatures | null
 ): Promise<LocalAgentOutput> {
   const llmSignal = await reasonSymptomContextOnDevice(symptomText);
   const vision = runVisionAgent(modelPrediction);
   const symptoms = runSymptomAgent(symptomText, llmSignal);
-  const consensus = runTriageAgent(vision, symptoms);
+  const consensus = runTriageAgent(vision, symptoms, colors);
 
   const trace: AgentTrace[] = [
     {

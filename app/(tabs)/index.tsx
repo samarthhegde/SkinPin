@@ -1,5 +1,6 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { CameraView, FlashMode, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -196,6 +197,19 @@ export default function HomeScreen() {
     }
   };
 
+  const pickFromLibrary = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.92,
+      allowsEditing: false,
+    });
+    if (!result.canceled && result.assets[0]?.uri) {
+      router.push({ pathname: '/symptoms', params: { photoUri: result.assets[0].uri } });
+    }
+  };
+
   const handleFlip = () => {
     isSwitching.current = true;
     setCameraFacing(p => p === 'back' ? 'front' : 'back');
@@ -322,28 +336,41 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            {/* Bottom shutter — only activates when skin ready */}
+            {/* Bottom shutter + library */}
             <View style={s.bottomBar}>
               <View style={s.zoomPill}>
                 <Text style={s.zoomText}>{Math.max(1, zoomFactor).toFixed(1)}&times;</Text>
               </View>
-              <Pressable
-                onPress={takePhoto}
-                disabled={!skinReady || isCapturing}
-                style={({ pressed }) => [s.shutterOuter, {
-                  borderColor: skinReady || isCapturing ? '#4ADE80' : 'rgba(255,255,255,0.2)',
-                  opacity: pressed ? 0.75 : 1,
-                }]}
-              >
-                {isCapturing
-                  ? <ActivityIndicator color="#4ADE80" size="small" />
-                  : <View style={[s.shutterInner, {
-                      backgroundColor: skinReady ? '#4ADE80' : 'rgba(255,255,255,0.15)',
-                    }]} />
-                }
-              </Pressable>
+              <View style={s.shutterRow}>
+                {/* Library picker (left) */}
+                <Pressable onPress={pickFromLibrary} style={s.libraryBtn}>
+                  <MaterialIcons name="photo-library" size={26} color="rgba(255,255,255,0.85)" />
+                  <Text style={s.libraryLabel}>Library</Text>
+                </Pressable>
+
+                {/* Shutter (center) */}
+                <Pressable
+                  onPress={takePhoto}
+                  disabled={!skinReady || isCapturing}
+                  style={({ pressed }) => [s.shutterOuter, {
+                    borderColor: skinReady || isCapturing ? '#4ADE80' : 'rgba(255,255,255,0.2)',
+                    opacity: pressed ? 0.75 : 1,
+                  }]}
+                >
+                  {isCapturing
+                    ? <ActivityIndicator color="#4ADE80" size="small" />
+                    : <View style={[s.shutterInner, {
+                        backgroundColor: skinReady ? '#4ADE80' : 'rgba(255,255,255,0.15)',
+                      }]} />
+                  }
+                </Pressable>
+
+                {/* Spacer to balance layout */}
+                <View style={s.libraryBtn} />
+              </View>
+
               <Text style={[s.hintText, { color: skinReady ? '#4ADE80' : 'rgba(255,255,255,0.35)' }]}>
-                {isCapturing ? 'Capturing\u2026' : skinReady ? 'Tap to capture' : 'Waiting for skin detection'}
+                {isCapturing ? 'Capturing\u2026' : skinReady ? 'Tap to capture' : 'Or pick from library'}
               </Text>
             </View>
           </View>
@@ -384,6 +411,9 @@ const s = StyleSheet.create({
   headerSub: { color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: '500', marginTop: 1 },
   iconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
   bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingBottom: 50, paddingTop: 16, alignItems: 'center', gap: 14 },
+  shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 40, width: '100%', paddingHorizontal: 40 },
+  libraryBtn: { width: 60, alignItems: 'center', gap: 4 },
+  libraryLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: '600' },
   zoomPill: { backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 4 },
   zoomText: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '700' },
   shutterOuter: { width: 78, height: 78, borderRadius: 39, borderWidth: 3.5, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.06)' },
