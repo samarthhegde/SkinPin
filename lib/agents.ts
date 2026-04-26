@@ -250,7 +250,7 @@ export function runTriageAgent(
   colors?: ColorFeatures | null
 ): ConsensusResult {
   const hasVisionModel = vision.label !== "model-unavailable";
-  const isNormalSkin = vision.label === "normal_skin" && vision.confidence >= 0.70;
+  const isNormalSkin = vision.label === "normal_skin" && vision.confidence >= 0.60;
   const hasSymptomRisk =
     symptoms.severity !== "low" ||
     symptoms.concernFlags.some((flag) => !flag.startsWith("reassuring_context:")) ||

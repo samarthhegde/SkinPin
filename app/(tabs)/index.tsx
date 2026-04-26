@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Animated,
     Dimensions,
     Easing,
@@ -198,15 +199,26 @@ export default function HomeScreen() {
   };
 
   const pickFromLibrary = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') return;
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.92,
-      allowsEditing: false,
-    });
-    if (!result.canceled && result.assets[0]?.uri) {
-      router.push({ pathname: '/symptoms', params: { photoUri: result.assets[0].uri } });
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please allow access to your photo library in Settings.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.92,
+        allowsEditing: false,
+      });
+      if (!result.canceled && result.assets[0]?.uri) {
+        router.push({ pathname: '/symptoms', params: { photoUri: result.assets[0].uri } });
+      }
+    } catch {
+      // Native module not linked yet — needs a dev rebuild after expo-image-picker install
+      Alert.alert(
+        'Rebuild required',
+        'Photo library access needs a new dev build. Run: npx expo run:ios --device'
+      );
     }
   };
 

@@ -73,11 +73,11 @@ let gateModel: TfliteModel | null = null;          // 16-class v2 model (has nor
 let bridgeInitAttempted = false;
 let hasFastTflite = true;
 
-// With temperature sharpening (T=0.5), scores are significantly higher.
-// Raise thresholds accordingly so "normal_skin" still requires very strong signal.
-const NORMAL_SKIN_THRESHOLD = 0.95;
-const NORMAL_SKIN_MARGIN_THRESHOLD = 0.35;
-const DISEASE_LOW_CONFIDENCE_THRESHOLD = 0.60;
+// normal_skin detection thresholds (post temperature-scaling).
+// Lower than before so clear skin is correctly identified as clear.
+const NORMAL_SKIN_THRESHOLD = 0.72;          // gate model must be ≥72% on normal_skin
+const NORMAL_SKIN_MARGIN_THRESHOLD = 0.15;   // must lead second class by at least 15%
+const DISEASE_LOW_CONFIDENCE_THRESHOLD = 0.55; // disease model must be ≥55% to override gate
 
 function argmax(scores: Float32Array): number {
   let bestIdx = 0;

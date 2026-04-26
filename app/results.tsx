@@ -26,7 +26,7 @@ const GRAY_TEXT   = '#374151';
 const WHITE       = '#FFFFFF';
 
 const URGENCY_CONFIG = {
-  clear:   { bg: '#F0FDF4', text: '#166534', badge: '#22C55E',  label: '✓ Good — Skin appears healthy' },
+  clear:   { bg: '#F0FDF4', text: '#166534', badge: '#22C55E',  label: '✓ Good — No conditions detected' },
   monitor: { bg: '#ECFDF5', text: '#065F46', badge: '#34D399',  label: '○ Mild — Keep an eye on it' },
   soon:    { bg: '#FEF3C7', text: '#92400E', badge: '#F59E0B',  label: '⚠ Moderate — See a doctor within 1–3 days' },
   urgent:  { bg: '#FEE2E2', text: '#B91C1C', badge: '#EF4444',  label: '✕ Dangerous — Seek care today' },
@@ -50,7 +50,7 @@ const CONDITION_PRETTY: Record<string, string> = {
   systemic_manifestation:     'Skin Sign of Systemic Condition',
   infectious_fungal:          'Fungal Skin Infection',
   vascular:                   'Vascular Skin Condition',
-  normal_skin:                'No Skin Condition Found',
+  normal_skin:                'Clear Skin ✓',
   // 23-class labels
   'Acne and Rosacea Photos':                                        'Acne / Rosacea',
   'Actinic Keratosis Basal Cell Carcinoma and other Malignant Lesions': 'Actinic Keratosis / Skin Cancer',
