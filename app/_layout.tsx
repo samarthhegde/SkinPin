@@ -21,6 +21,11 @@ export default function RootLayout() {
           <Stack.Screen name="symptoms" options={{ headerShown: false }} />
           <Stack.Screen name="results" options={{ headerShown: false }} />
           <Stack.Screen name="body-map" options={{ headerShown: false }} />
+          <Stack.Screen name="body-zone-picker" options={{ headerShown: false }} />
+          <Stack.Screen name="journal-input" options={{ headerShown: false }} />
+          <Stack.Screen name="progression" options={{ headerShown: false }} />
+          <Stack.Screen name="insights" options={{ headerShown: false }} />
+          <Stack.Screen name="report-export" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack>

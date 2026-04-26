@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 from collections import Counter
 from pathlib import Path
@@ -21,6 +22,7 @@ import tensorflow as tf  # type: ignore[import-not-found]
 
 
 ROOT = Path(__file__).resolve().parents[2]
+WORKSPACE_ROOT = ROOT.parent
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -92,6 +94,12 @@ def infer_folder_label(path: Path, dataset_root: Path) -> str:
     return parts[0]
 
 
+def infer_default_split(path: Path) -> str:
+    digest = hashlib.md5(str(path).encode("utf-8")).hexdigest()
+    bucket = int(digest[:2], 16) % 10
+    return "train" if bucket < 8 else "test"
+
+
 def quality_metrics(path: Path) -> tuple[float, float, int, int]:
     raw = tf.io.read_file(str(path))
     image = tf.image.decode_image(raw, channels=3, expand_animations=False)
@@ -122,8 +130,14 @@ def parse_args():
     parser.add_argument(
         "--datasets",
         nargs="*",
-        default=["archive", "archive (1)"],
+        default=["archive", "archive (1)", "../archive (3)"],
         help="Dataset directories relative to app root.",
+    )
+    parser.add_argument(
+        "--normal-skin-datasets",
+        nargs="*",
+        default=["../archive (3)", "archive (3)"],
+        help="Datasets that should be force-labeled as normal_skin.",
     )
     parser.add_argument(
         "--out",
@@ -166,10 +180,18 @@ def main():
     review_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     ham_labels = load_ham10000_labels(ROOT / "archive" / "HAM10000_metadata.csv")
+    normal_skin_datasets = {
+        name.strip().lower().rstrip("/\\") for name in args.normal_skin_datasets if name.strip()
+    }
 
     rows = []
     for dataset_name in args.datasets:
-        dataset_root = ROOT / dataset_name
+        dataset_name_clean = dataset_name.strip()
+        dataset_name_key = dataset_name_clean.lower().rstrip("/\\")
+        dataset_root = Path(dataset_name_clean)
+        if not dataset_root.is_absolute():
+            dataset_root = (ROOT / dataset_root).resolve()
+        is_normal_skin_dataset = dataset_name_key in normal_skin_datasets
         for idx, image_path in enumerate(iter_images(dataset_root), start=1):
             try:
                 brightness, contrast, width, height = quality_metrics(image_path)
@@ -180,23 +202,37 @@ def main():
             folder_label = infer_folder_label(image_path, dataset_root)
             label = folder_label
             label_source = "folder_inference"
-            if dataset_name == "archive" and folder_label.lower().startswith("ham10000_images_part_"):
-                image_id = image_path.stem
-                mapped_dx = ham_labels.get(image_id)
-                if mapped_dx:
-                    label = mapped_dx
-                    label_source = "ham10000_metadata"
-
-            if label_source == "ham10000_metadata":
-                super_label = HAM_DX_TO_SUPER.get(label, "unmapped")
+            if is_normal_skin_dataset:
+                label = "normal_skin"
+                label_source = "dataset_override_normal_skin"
+                super_label = "normal_skin"
             else:
-                super_label = REDUCED_CLASS_MAP.get(label, "unmapped")
+                if dataset_name_key == "archive" and folder_label.lower().startswith("ham10000_images_part_"):
+                    image_id = image_path.stem
+                    mapped_dx = ham_labels.get(image_id)
+                    if mapped_dx:
+                        label = mapped_dx
+                        label_source = "ham10000_metadata"
+
+                if label_source == "ham10000_metadata":
+                    super_label = HAM_DX_TO_SUPER.get(label, "unmapped")
+                else:
+                    super_label = REDUCED_CLASS_MAP.get(label, "unmapped")
+
+            try:
+                rel_path = image_path.relative_to(ROOT)
+            except ValueError:
+                rel_path = Path("..") / image_path.relative_to(WORKSPACE_ROOT)
+
+            split = infer_split(image_path)
+            if is_normal_skin_dataset and split == "unspecified":
+                split = infer_default_split(image_path)
 
             rows.append(
                 {
-                    "image_path": str(image_path.relative_to(ROOT)),
-                    "dataset_source": dataset_name,
-                    "split": infer_split(image_path),
+                    "image_path": str(rel_path),
+                    "dataset_source": dataset_name_clean,
+                    "split": split,
                     "folder_label": label,
                     "super_label": super_label,
                     "is_skin": "yes",

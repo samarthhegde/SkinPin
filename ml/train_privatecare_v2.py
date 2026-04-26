@@ -52,6 +52,7 @@ REDUCED_CLASS_MAP = {
     "Vascular Tumors": "vascular",
     "Vasculitis Photos": "vascular",
     "Warts Molluscum and other Viral Infections": "infectious_viral_std",
+    "normal_skin": "normal_skin",
 }
 
 

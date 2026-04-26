@@ -1,5 +1,5 @@
-import { LocalAgentOutput, runLocalAgentPipeline } from '@/lib/agents';
-import { getGeminiExplanation } from '@/lib/gemini';
+import { LocalAgentOutput, runLocalAgentPipelineAsync } from '@/lib/agents';
+import { urgencyToSeverity } from '@/lib/bodyMap';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -28,7 +28,7 @@ const URGENCY_CONFIG = {
   monitor:{ bg: '#DCFCE7', text: '#166534', badge: '#4ADE80', label: 'Monitor for now' },
 };
 
-// Parse Gemini bullet points into a clean array
+// Parse local explanation points into a clean array
 function parseBullets(text: string): string[] {
   return text
     .split('\n')
@@ -67,39 +67,31 @@ function getNextSteps(urgency: string, condition: string): string[] {
 
 export default function ResultsScreen() {
   const router = useRouter();
-  const { photoUri, symptoms } = useLocalSearchParams<{
+  const { photoUri, symptoms, tagged, zoneLabel } = useLocalSearchParams<{
     photoUri: string;
     symptoms: string;
+    tagged?: string;
+    zoneLabel?: string;
   }>();
 
   const [output, setOutput] = useState<LocalAgentOutput | null>(null);
-  const [geminiText, setGeminiText] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const run = async () => {
       setLoading(true);
-      const result = runLocalAgentPipeline(symptoms ?? '');
+      const result = await runLocalAgentPipelineAsync(symptoms ?? '');
       setOutput(result);
-
-      const explanation = await getGeminiExplanation({
-        symptoms: symptoms ?? '',
-        condition: result.consensus.condition,
-        confidence: result.consensus.confidence,
-        urgency: result.consensus.urgency,
-        whenToSeeDoctor: result.consensus.whenToSeeDoctor,
-      });
-      setGeminiText(explanation);
       setLoading(false);
     };
     run();
-  }, []);
+  }, [symptoms]);
 
   const urgency = (output?.consensus.urgency ?? 'monitor') as keyof typeof URGENCY_CONFIG;
   const urgencyCfg = URGENCY_CONFIG[urgency];
   const confidence = output ? Math.round(output.consensus.confidence * 100) : 0;
   const nextSteps = output ? getNextSteps(urgency, output.consensus.condition) : [];
-  const bullets = geminiText ? parseBullets(geminiText) : [];
+  const bullets = output ? parseBullets(output.consensus.explanation) : [];
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -200,28 +192,38 @@ export default function ResultsScreen() {
             </Text>
           </View>
 
+          {tagged === '1' ? (
+            <View style={styles.savedBanner}>
+              <Text style={styles.savedBannerText}>
+                Saved to body map{zoneLabel ? `: ${zoneLabel}` : ''}.
+              </Text>
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={styles.tagBtn}
+            onPress={() =>
+              router.push({
+                pathname: '/body-zone-picker',
+                params: {
+                  condition: output?.consensus.condition ?? 'Skin condition',
+                  severity: urgencyToSeverity(urgency),
+                  photoPath: photoUri ?? '',
+                  returnTo: '/results',
+                },
+              })
+            }
+            activeOpacity={0.85}>
+            <Text style={styles.tagBtnText}>Tag on body map</Text>
+          </TouchableOpacity>
+
           {/* 3D Body Map */}
           <TouchableOpacity
             style={styles.bodyMapBtn}
-            onPress={() => router.push({
-              pathname: '/body-map',
-              params: {
-                bodyPart: symptoms?.toLowerCase().includes('arm') ? 'arm'
-                  : symptoms?.toLowerCase().includes('leg') ? 'leg'
-                  : symptoms?.toLowerCase().includes('face') ? 'face'
-                  : symptoms?.toLowerCase().includes('back') ? 'back'
-                  : symptoms?.toLowerCase().includes('hand') ? 'hand'
-                  : symptoms?.toLowerCase().includes('foot') ? 'foot'
-                  : symptoms?.toLowerCase().includes('neck') ? 'neck'
-                  : symptoms?.toLowerCase().includes('chest') ? 'chest'
-                  : 'chest',
-                condition: output?.consensus.condition ?? 'Skin Condition',
-                urgency: urgency,
-              },
-            })}
+            onPress={() => router.push('/body-map')}
             activeOpacity={0.85}
           >
-            <Text style={styles.bodyMapBtnText}>🫀 View 3D Body Map & Spread Projection</Text>
+            <Text style={styles.bodyMapBtnText}>View Body Map History</Text>
           </TouchableOpacity>
 
           {/* Scan Again */}
@@ -461,4 +463,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+  tagBtn: {
+    backgroundColor: '#111827',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  tagBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  savedBanner: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#86EFAC',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+  },
+  savedBannerText: { color: '#166534', fontWeight: '700' },
 });

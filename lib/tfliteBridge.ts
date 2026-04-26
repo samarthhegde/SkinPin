@@ -47,7 +47,7 @@ const DERMA23_LABELS = [
   "Warts Molluscum and other Viral Infections",
 ];
 
-const REDUCED15_LABELS = [
+const REDUCED16_LABELS = [
   "inflammatory",
   "malignant_or_precancerous",
   "eczema_dermatitis",
@@ -63,6 +63,7 @@ const REDUCED15_LABELS = [
   "systemic_manifestation",
   "infectious_fungal",
   "vascular",
+  "normal_skin",
 ];
 
 const MODEL_SIZE = 224;
@@ -107,7 +108,7 @@ function softmax(logits: Float32Array): Float32Array {
 }
 
 function labelsForOutputSize(size: number): string[] {
-  if (size === REDUCED15_LABELS.length) return REDUCED15_LABELS;
+  if (size === REDUCED16_LABELS.length) return REDUCED16_LABELS;
   return DERMA23_LABELS;
 }
 

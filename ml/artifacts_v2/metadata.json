@@ -34,6 +34,7 @@
     "11": "benign_tumor",
     "12": "systemic_manifestation",
     "13": "infectious_fungal",
-    "14": "vascular"
+    "14": "vascular",
+    "15": "normal_skin"
   }
 }

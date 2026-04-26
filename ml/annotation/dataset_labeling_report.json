@@ -1,17 +1,17 @@
 {
-  "total_rows": 29574,
-  "review_queue_rows": 9835,
+  "total_rows": 29698,
+  "review_queue_rows": 9920,
   "unmapped_rows": 0,
   "is_fully_labeled_structurally": true,
   "quality_counts": {
-    "fair": 6365,
-    "good": 19739,
-    "poor": 3470
+    "fair": 6393,
+    "good": 19778,
+    "poor": 3527
   },
   "split_counts": {
     "ham10000": 10015,
-    "test": 4002,
-    "train": 15557
+    "test": 4026,
+    "train": 15657
   },
   "super_label_counts": {
     "autoimmune_bullous": 561,
@@ -25,6 +25,7 @@
     "infestation_bite": 539,
     "inflammatory": 1922,
     "malignant_or_precancerous": 3970,
+    "normal_skin": 124,
     "papulosquamous": 1757,
     "pigment_light_disorder": 711,
     "systemic_manifestation": 758,

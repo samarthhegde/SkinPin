@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import { LocalAgentOutput, runLocalAgentPipeline } from '@/lib/agents';
+import { LocalAgentOutput, runLocalAgentPipelineAsync } from '@/lib/agents';
 import { analyzeSkinPhotoWithMelange, initializeMelangeBridge } from '@/lib/melangeBridge';
 import type { VisionModelPrediction as MelangePrediction } from '@/lib/melangeBridge';
 import { analyzeSkinPhotoWithTflite, initializeTfliteBridge } from '@/lib/tfliteBridge';
@@ -114,19 +114,20 @@ export default function HomeScreen() {
     setIsAnalyzing(true);
 
     let modelPrediction: VisionModelPrediction | null = null;
+    const requireZetic = process.env.EXPO_PUBLIC_REQUIRE_ZETIC !== 'false';
 
     const melangeReady = await initializeMelangeBridge();
     if (melangeReady) {
       modelPrediction = await analyzeSkinPhotoWithMelange(photoUri);
     }
 
-    if (!modelPrediction) {
+    if (!modelPrediction && !requireZetic) {
       await initializeTfliteBridge();
       modelPrediction = await analyzeSkinPhotoWithTflite(photoUri);
     }
 
     setInferenceBackend(modelPrediction?.source ?? 'none');
-    const output = runLocalAgentPipeline(symptoms, modelPrediction);
+    const output = await runLocalAgentPipelineAsync(symptoms, modelPrediction);
     setAgentOutput(output);
     setIsAnalyzing(false);
   };
@@ -256,7 +257,7 @@ export default function HomeScreen() {
               <Text>Confidence: {(agentOutput.consensus.confidence * 100).toFixed(0)}%</Text>
               <Text>
                 Inference backend:{' '}
-                {inferenceBackend === 'none' ? 'unavailable (symptom-only fallback)' : inferenceBackend}
+                {inferenceBackend === 'none' ? 'unavailable (no model output)' : inferenceBackend}
               </Text>
               <Text style={{ color: urgencyColor(agentOutput.consensus.urgency), fontWeight: '700' }}>
                 Urgency: {agentOutput.consensus.urgency.toUpperCase()}

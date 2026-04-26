@@ -18,6 +18,8 @@ Model training is currently in progress. Frontend/mobile development can continu
   - Vision agent (prototype signal)
   - Symptom agent (keyword + duration extraction)
   - Triage agent (consensus urgency + next-step recommendation)
+- Body map history with local tagging, progression, triggers, and insights
+- On-device doctor report generation + native share sheet
 - Sensitive Mode toggle with session clearing flow
 - Retake + full session reset flow
 
@@ -61,13 +63,14 @@ npx expo start
 - `w` = Web
 - Scan QR in Expo Go for physical phone
 
-4. Optional: enable Gemini explanation
+4. Optional: enable on-device LLM context reasoner (cloudless)
 
 ```bash
-export EXPO_PUBLIC_GEMINI_API_KEY=your_key_here
+export EXPO_PUBLIC_ENABLE_ONDEVICE_LLM=true
+export EXPO_PUBLIC_ONDEVICE_LLM_MODEL_PATH=/absolute/path/to/your/model.gguf
 ```
 
-If key is missing, app still works with local agent output only.
+If these are missing, app still works with the local rule-based agent output only.
 
 5. Required for ZETIC Melange model init:
 
@@ -110,3 +113,8 @@ npx expo start
 - No cloud storage
 - Privacy-first architecture
 - Training pipeline for both datasets in `ml/` (HAM10000 + Derma23)
+- Progression/trigger analytics and report export, all on-device
+
+## Native build note for PDF export
+
+`react-native-html-to-pdf` requires a native dev build. It will not run in Expo Go.
