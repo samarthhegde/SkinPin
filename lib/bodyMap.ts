@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import uuid from "react-native-uuid";
 
-export type BodyMapSeverity = "mild" | "moderate" | "severe";
+export type BodyMapSeverity = "clear" | "mild" | "moderate" | "severe";
 export type FollowUpSeverity = BodyMapSeverity | "resolved";
 
 export type JournalInputs = {
@@ -82,13 +82,15 @@ export const BODY_ZONES: BodyZone[] = [
 export function urgencyToSeverity(urgency: string): BodyMapSeverity {
   if (urgency === "urgent") return "severe";
   if (urgency === "soon") return "moderate";
-  return "mild";
+  if (urgency === "monitor") return "mild";
+  return "clear"; // 'clear' = no condition found
 }
 
 export function severityColor(severity: BodyMapSeverity): string {
-  if (severity === "severe") return "#DC2626";
-  if (severity === "moderate") return "#D97706";
-  return "#16A34A";
+  if (severity === "severe") return "#DC2626";   // red
+  if (severity === "moderate") return "#D97706"; // orange
+  if (severity === "mild") return "#4ADE80";     // light green
+  return "#22C55E";                              // clear = bright green (no issue)
 }
 
 export function zonesForView(view: BodyView): BodyZone[] {

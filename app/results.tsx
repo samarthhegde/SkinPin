@@ -1,5 +1,6 @@
 import { LocalAgentOutput, runLocalAgentPipelineAsync } from '@/lib/agents';
 import { urgencyToSeverity } from '@/lib/bodyMap';
+import { analyzeSkinPhotoWithTflite, initializeTfliteBridge } from '@/lib/tfliteBridge';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -23,9 +24,10 @@ const GRAY_TEXT   = '#374151';
 const WHITE       = '#FFFFFF';
 
 const URGENCY_CONFIG = {
-  urgent: { bg: '#FEE2E2', text: '#B91C1C', badge: '#EF4444', label: 'Urgent — Seek care today' },
-  soon:   { bg: '#FEF3C7', text: '#B45309', badge: '#F59E0B', label: 'See a doctor within 1–3 days' },
-  monitor:{ bg: '#DCFCE7', text: '#166534', badge: '#4ADE80', label: 'Monitor for now' },
+  clear:   { bg: '#F0FDF4', text: '#166534', badge: '#22C55E', label: '✓ No skin condition found' },
+  monitor: { bg: '#DCFCE7', text: '#166534', badge: '#4ADE80', label: 'Mild — keep an eye on it' },
+  soon:    { bg: '#FEF3C7', text: '#B45309', badge: '#F59E0B', label: 'Moderate — see a doctor within 1–3 days' },
+  urgent:  { bg: '#FEE2E2', text: '#B91C1C', badge: '#EF4444', label: 'Severe — seek care today' },
 };
 
 // Parse local explanation points into a clean array
@@ -43,6 +45,13 @@ function getNextSteps(urgency: string, condition: string): string[] {
     'Keep the area clean and dry.',
     'Avoid new skincare products or detergents until the condition clears.',
   ];
+  if (urgency === 'clear') {
+    return [
+      'Your skin looks healthy — no action needed.',
+      'Re-scan if you notice any changes in color, texture, or size.',
+      'Stay consistent with your regular skincare routine.',
+    ];
+  }
   if (urgency === 'urgent') {
     return [
       'Visit urgent care or an emergency room today.',
@@ -76,16 +85,31 @@ export default function ResultsScreen() {
 
   const [output, setOutput] = useState<LocalAgentOutput | null>(null);
   const [loading, setLoading] = useState(true);
+  const [modelStatus, setModelStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
 
   useEffect(() => {
     const run = async () => {
       setLoading(true);
-      const result = await runLocalAgentPipelineAsync(symptoms ?? '');
+
+      // 1. Try to load the TFLite model and run it on the photo
+      let modelPrediction = null;
+      if (photoUri) {
+        const modelLoaded = await initializeTfliteBridge();
+        setModelStatus(modelLoaded ? 'ready' : 'unavailable');
+        if (modelLoaded) {
+          modelPrediction = await analyzeSkinPhotoWithTflite(photoUri);
+        }
+      } else {
+        setModelStatus('unavailable');
+      }
+
+      // 2. Pass both the photo prediction AND symptoms into the pipeline
+      const result = await runLocalAgentPipelineAsync(symptoms ?? '', modelPrediction);
       setOutput(result);
       setLoading(false);
     };
     run();
-  }, [symptoms]);
+  }, [photoUri, symptoms]);
 
   const urgency = (output?.consensus.urgency ?? 'monitor') as keyof typeof URGENCY_CONFIG;
   const urgencyCfg = URGENCY_CONFIG[urgency];
@@ -109,8 +133,14 @@ export default function ResultsScreen() {
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={PURPLE} />
-          <Text style={styles.loadingText}>Analyzing your skin...</Text>
-          <Text style={styles.loadingSubtext}>Running multi-agent analysis privately on device</Text>
+          <Text style={styles.loadingText}>
+            {modelStatus === 'loading' ? 'Running skin analysis model…' : 'Combining results…'}
+          </Text>
+          <Text style={styles.loadingSubtext}>
+            {modelStatus === 'loading'
+              ? 'Comparing your photo against 23 trained skin conditions'
+              : 'Running multi-agent analysis privately on device'}
+          </Text>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent}>

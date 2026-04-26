@@ -25,7 +25,7 @@ export type SymptomAgentResult = {
 export type ConsensusResult = {
   condition: string;
   confidence: number;
-  urgency: "monitor" | "soon" | "urgent";
+  urgency: "clear" | "monitor" | "soon" | "urgent";
   whenToSeeDoctor: string;
   explanation: string;
 };
@@ -213,12 +213,23 @@ export function runTriageAgent(
   symptoms: SymptomAgentResult
 ): ConsensusResult {
   const hasVisionModel = vision.label !== "model-unavailable" && vision.label !== "uncertain-visual";
-  const combinedSeverity = levelFromRank(
+  const isNormalSkin = vision.label === "normal_skin" && vision.confidence >= 0.70;
+
+    // If gate model is confident this is normal skin, short-circuit to all-clear
+    if (isNormalSkin) {
+      return {
+        condition: "No skin condition found",
+        confidence: vision.confidence,
+        urgency: "clear",
+        whenToSeeDoctor: "No issues detected. Keep an eye on the area and see a doctor if anything changes.",
+        explanation: "The on-device model compared your photo against 16 skin categories and is confident the skin appears normal.",
+      };
+    }  const combinedSeverity = levelFromRank(
     Math.max(severityRank(vision.severity), severityRank(symptoms.severity))
   );
 
   let urgency: ConsensusResult["urgency"] = "monitor";
-  let whenToSeeDoctor = "Monitor for 24-48 hours. Seek care if symptoms worsen.";
+  let whenToSeeDoctor = "No issues detected. Keep an eye on the area and see a doctor if anything changes.";
 
   if (combinedSeverity === "medium") {
     urgency = "soon";
@@ -247,7 +258,7 @@ export function runTriageAgent(
           ? "Possible infection or severe inflammation"
           : combinedSeverity === "medium"
             ? "Possible dermatitis or progressing inflammatory condition"
-            : "Likely mild irritation";
+            : "No skin condition found";
 
   return {
     condition,
