@@ -1,6 +1,8 @@
 import { BodyMapEntry, getBodyMapEntries, getTreatmentLogs, getZoneById, severityColor } from "@/lib/bodyMap";
 import { computeTreatmentEffectiveness, computeTrend } from "@/lib/progression";
 import { analyzeTriggers } from "@/lib/triggerAnalyzer";
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useRouter } from "expo-router";
 import * as FileSystem from "expo-file-system";
 import { captureRef } from "react-native-view-shot";
 import { useEffect, useState } from "react";
@@ -39,6 +41,7 @@ function BodySnapshot({
 }
 
 export default function ReportExportScreen() {
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [frontRef, setFrontRef] = useState<View | null>(null);
   const [backRef, setBackRef] = useState<View | null>(null);
@@ -162,7 +165,13 @@ export default function ReportExportScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Text style={styles.title}>Doctor Report Export</Text>
+      <View style={styles.headerRow}>
+        <Pressable style={styles.iconBtn} onPress={() => router.back()}>
+          <MaterialIcons name="arrow-back" size={20} color="#111827" />
+        </Pressable>
+        <Text style={styles.title}>Doctor Report Export</Text>
+        <View style={{ width: 36 }} />
+      </View>
       <Text style={styles.subtitle}>Generate a local PDF and share via native share sheet.</Text>
       <View ref={setFrontRef} collapsable={false} style={styles.hidden}>
         <BodySnapshot entries={entries} view="front" />
@@ -184,6 +193,8 @@ export default function ReportExportScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#F3F4F6", padding: 16, gap: 12 },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E5E7EB" },
   title: { fontSize: 24, fontWeight: "800", color: "#111827" },
   subtitle: { color: "#4B5563" },
   button: { marginTop: 12, backgroundColor: "#111827", borderRadius: 12, alignItems: "center", paddingVertical: 14 },

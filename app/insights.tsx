@@ -3,6 +3,7 @@ import { computeTreatmentEffectiveness } from "@/lib/progression";
 import { analyzeTriggers } from "@/lib/triggerAnalyzer";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import Svg, { Rect } from "react-native-svg";
 
@@ -24,7 +25,13 @@ export default function InsightsScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Insights</Text>
+        <View style={styles.headerRow}>
+          <Pressable style={styles.iconBtn} onPress={() => router.back()}>
+            <MaterialIcons name="arrow-back" size={20} color="#111827" />
+          </Pressable>
+          <Text style={styles.title}>Insights</Text>
+          <View style={{ width: 36 }} />
+        </View>
         <Text style={styles.note}>Based on your logged history — not a medical diagnosis.</Text>
 
         <View style={styles.card}>
@@ -80,6 +87,8 @@ export default function InsightsScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#F3F4F6" },
   content: { padding: 16, gap: 10, paddingBottom: 24 },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E5E7EB" },
   title: { fontSize: 24, fontWeight: "800", color: "#111827" },
   note: { color: "#4B5563" },
   card: { backgroundColor: "#FFFFFF", borderRadius: 12, padding: 12, gap: 8 },
