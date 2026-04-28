@@ -1,14 +1,10 @@
 # SkinPin
 
-Privacy-first skin scan prototype built with Expo + React Native.
+Privacy-first skin scan prototype built with Expo + React Native that can detect over 23 skin conditions and analyze completely OFFLINE!
 
 LA Hacks 2026 - Ranked Top 10 in Zetic AI Company Challenge
 
 ## Status
-
-Model training is currently in progress. Frontend/mobile development can continue independently while long-running training jobs finish.
-
-## What works right now
 
 - Camera opens in app
 - User can take a photo
@@ -16,6 +12,8 @@ Model training is currently in progress. Frontend/mobile development can continu
 - Symptom input via text
 - Voice symptom capture (speech-to-text)
 - ZETIC Melange on-device model inference (when token/model key are configured)
+- 23 Different Skin Conditions Trained
+- Runs FULLY offline with Airplane Mode turned on
 - Multi-agent local reasoning pipeline:
   - Vision agent (prototype signal)
   - Symptom agent (keyword + duration extraction)
