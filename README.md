@@ -2,6 +2,8 @@
 
 Privacy-first skin scan prototype built with Expo + React Native.
 
+LA Hacks 2026 - Ranked Top 10 in Zetic AI Company Challenge
+
 ## Status
 
 Model training is currently in progress. Frontend/mobile development can continue independently while long-running training jobs finish.
