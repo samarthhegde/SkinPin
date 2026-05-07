@@ -33,6 +33,10 @@ This is expected because there is no backend or sync yet. Each device runs its o
 - Expo SDK 54
 - React Native
 - Expo Router
+- Swift
+- Typescript
+- TensorFlow Lite (TFLite)
+- DermNet
 - `expo-camera`
 - `expo-speech-recognition`
 - `react-native-zetic-mlange`
