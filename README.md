@@ -4,6 +4,8 @@ Privacy-first skin scan prototype built with Expo + React Native that can detect
 
 LA Hacks 2026 - Ranked Top 10 in Zetic AI Company Challenge
 
+https://devpost.com/software/skinpin
+
 ## Status
 
 - Camera opens in app
